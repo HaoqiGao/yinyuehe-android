@@ -163,9 +163,9 @@ Room 是用户数据与增强数据的单一事实来源。MediaStore 仍是设�
 | `lyrics` | track fingerprint、普通/同步歌词、来源、匹配得分、抓取和过期时间、负结果过期时间 |
 | `remote_metadata` | track fingerprint、MusicBrainz ids、候选字段、匹配得分、封面地址、抓取和过期时间 |
 | `diagnostic_events` | 类型化错误码、组件、时间、耗时和脱敏上下文；最多保留最近 500 条 |
-| Proto DataStore | 主题、扫描设置、联网增强开关和最小播放恢复快照 |
+| Proto DataStore | 权限请求历史、主题、扫描设置、联网增强开关和最小播放恢复快照 |
 
-MediaStore id 使用“volume + row id”构造稳定领域 id。每次扫描在单个事务中 upsert 当前媒体，并将本次未出现的旧记录标记为不可用；保留收藏、歌单关系和最近播放记录，以便文件重新出现后恢复。
+MediaStore id 使用“volume + row id”构造稳定领域 id。扫描先在事务外完整读取一个可独立查询的存储卷，再在该卷的短事务中 upsert 当前媒体、标记本次未出现的旧记录不可用并推进检查点；查询未完成时不提交该卷。不同存储卷可以独立成功或保留各自上次成功缓存。收藏、歌单关系和最近播放记录持续保留，以便文件重新出现后恢复。
 
 Android 11 及以上优先利用 MediaStore generation 判断变化；Android 8–10 使用修改时间和显式全量扫描。扫描在 IO dispatcher 执行并提供取消、进度和最终统计。
 

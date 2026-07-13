@@ -71,6 +71,15 @@ M6 性能、稳定性、CI 与 Release
 
 **退出条件：** API 26/30/33/36 权限与扫描路径通过；断电式中断不会破坏数据库；1000 首 fixture 搜索与滚动可用；旧缓存能在扫描失败时继续显示。
 
+**已批准设计：** `docs/superpowers/specs/2026-07-13-m2-local-library-design.md`
+
+**四个连续实施计划：**
+
+1. `docs/superpowers/plans/2026-07-13-m2a-room-library-cache.md`
+2. `docs/superpowers/plans/2026-07-13-m2b-mediastore-scanner.md`
+3. `docs/superpowers/plans/2026-07-13-m2c-audio-permission-library-ui.md`
+4. `docs/superpowers/plans/2026-07-13-m2d-library-search-views.md`
+
 ## M3：播放会话、后台控制与恢复
 
 **目标：** 把基础播放升级为完整、可恢复的系统媒体体验。
