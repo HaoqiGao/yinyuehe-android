@@ -14,7 +14,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 @HiltViewModel
-class LibraryViewModel @Inject constructor(
+class LibraryViewModel @Inject internal constructor(
   repository: TrackRepository,
   private val playbackController: PlaybackController,
 ) : ViewModel() {
