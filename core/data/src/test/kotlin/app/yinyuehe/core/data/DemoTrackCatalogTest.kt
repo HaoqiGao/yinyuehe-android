@@ -2,6 +2,8 @@ package app.yinyuehe.core.data
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import app.yinyuehe.core.data.repository.RoomTrackRepository
+import dagger.Binds
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -23,5 +25,17 @@ class DemoTrackCatalogTest {
     assertEquals(listOf(3_200L, 3_500L, 3_800L, 4_000L), tracks.map { it.durationMs })
     assertTrue(tracks.all { it.isDemo })
     assertTrue(tracks.all { it.sourceUri.startsWith("android.resource://${context.packageName}/") })
+  }
+
+  @Test
+  fun dataModule_bindsRoomRepositoryAsTrackRepository() {
+    val binding =
+      DataModule::class.java.getDeclaredMethod(
+        "bindTrackRepository",
+        RoomTrackRepository::class.java,
+      )
+
+    assertTrue(binding.isAnnotationPresent(Binds::class.java))
+    assertEquals(TrackRepository::class.java, binding.returnType)
   }
 }
