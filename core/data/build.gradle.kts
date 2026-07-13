@@ -9,9 +9,9 @@ android {
 }
 
 dependencies {
-  implementation(project(":core:common"))
+  api(project(":core:common"))
+  api(libs.kotlinx.coroutines.core)
   implementation(libs.hilt.android)
-  implementation(libs.kotlinx.coroutines.core)
   ksp(libs.hilt.compiler)
 
   testImplementation(libs.junit)

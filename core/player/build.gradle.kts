@@ -9,7 +9,8 @@ android {
 }
 
 dependencies {
-  implementation(project(":core:common"))
+  api(project(":core:common"))
+  api(libs.kotlinx.coroutines.core)
   implementation(libs.androidx.core.ktx)
   implementation(libs.hilt.android)
   implementation(libs.kotlinx.coroutines.android)
