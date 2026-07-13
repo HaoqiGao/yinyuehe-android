@@ -3,6 +3,7 @@ package app.yinyuehe.core.player.service
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaLibraryService.MediaLibrarySession
@@ -27,6 +28,17 @@ class PlaybackService : MediaLibraryService() {
         .build()
     val callback =
       object : MediaLibrarySession.Callback {
+        @UnstableApi
+        override fun onConnect(
+          mediaSession: MediaSession,
+          controller: MediaSession.ControllerInfo,
+        ): MediaSession.ConnectionResult =
+          if (controller.isTrusted) {
+            super.onConnect(mediaSession, controller)
+          } else {
+            MediaSession.ConnectionResult.reject()
+          }
+
         override fun onAddMediaItems(
           mediaSession: MediaSession,
           controller: MediaSession.ControllerInfo,
