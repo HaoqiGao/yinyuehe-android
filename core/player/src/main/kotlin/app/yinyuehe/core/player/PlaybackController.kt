@@ -5,6 +5,6 @@ import kotlinx.coroutines.flow.StateFlow
 
 interface PlaybackController {
   val state: StateFlow<PlaybackState>
-  suspend fun play(tracks: List<Track>, startIndex: Int)
+  suspend fun play(tracks: List<Track>, startIndex: Int): Boolean
   fun togglePlayPause()
 }

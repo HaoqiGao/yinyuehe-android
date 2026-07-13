@@ -13,9 +13,17 @@ class FakePlaybackController : PlaybackController {
   override val state: StateFlow<PlaybackState> = mutableState
   val playRequests = mutableListOf<PlayRequest>()
   var toggleCount = 0
+  var playResult = true
+  var playFailure: Throwable? = null
+  var playHandler: suspend (PlayRequest) -> Boolean = {
+    playFailure?.let { failure -> throw failure }
+    playResult
+  }
 
-  override suspend fun play(tracks: List<Track>, startIndex: Int) {
-    playRequests += PlayRequest(tracks, startIndex)
+  override suspend fun play(tracks: List<Track>, startIndex: Int): Boolean {
+    val request = PlayRequest(tracks, startIndex)
+    playRequests += request
+    return playHandler(request)
   }
 
   override fun togglePlayPause() {

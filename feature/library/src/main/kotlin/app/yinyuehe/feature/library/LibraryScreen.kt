@@ -55,6 +55,14 @@ fun LibraryScreen(
         Text("音悦盒", style = MaterialTheme.typography.headlineLarge)
         Text("随时可播放的本地音乐", style = MaterialTheme.typography.bodyMedium)
       }
+      state.playbackError?.let { error ->
+        Text(
+          text = error.message,
+          modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+          color = MaterialTheme.colorScheme.error,
+          style = MaterialTheme.typography.bodyMedium,
+        )
+      }
       if (state.isLoading && state.tracks.isEmpty()) {
         Row(
           Modifier.fillMaxWidth().padding(32.dp),
@@ -75,6 +83,13 @@ fun LibraryScreen(
     }
   }
 }
+
+private val PlaybackError.message: String
+  get() =
+    when (this) {
+      PlaybackError.CONNECTION_FAILED -> "播放器连接失败，请重试"
+      PlaybackError.PLAYBACK_FAILED -> "播放失败，请重试"
+    }
 
 @Composable
 private fun TrackRow(track: Track, onTrackClick: (TrackId) -> Unit) {

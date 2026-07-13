@@ -14,6 +14,7 @@ import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -98,20 +99,44 @@ class Media3PlaybackController @Inject constructor(
     )
   }
 
-  private fun rebuildController() {
-    controllerFuture = buildController()
-    observeConnection(controllerFuture)
-  }
+  private fun rebuildController(): ListenableFuture<MediaController> =
+    buildController().also {
+      controllerFuture = it
+      observeConnection(it)
+    }
 
-  override suspend fun play(tracks: List<Track>, startIndex: Int) {
+  override suspend fun play(tracks: List<Track>, startIndex: Int): Boolean {
     require(tracks.isNotEmpty()) { "Playback queue must not be empty" }
     require(startIndex in tracks.indices) { "startIndex must reference the queue" }
-    withContext(Dispatchers.Main.immediate) {
-      val mediaController = Futures.nonCancellationPropagating(controllerFuture).await()
+    return withContext(Dispatchers.Main.immediate) {
+      val future = selectControllerFuture()
+      val mediaController =
+        try {
+          Futures.nonCancellationPropagating(future).await()
+        } catch (cancellation: CancellationException) {
+          throw cancellation
+        } catch (_: Exception) {
+          handleConnectionFailure(future)
+          return@withContext false
+        }
       mediaController.setMediaItems(tracks.map { it.toMediaItem() }, startIndex, 0)
       mediaController.prepare()
       mediaController.play()
+      true
     }
+  }
+
+  private fun selectControllerFuture(): ListenableFuture<MediaController> {
+    if (!controllerFuture.hasFailed()) return controllerFuture
+    _state.value = PlaybackState(connection = PlaybackConnection.CONNECTING)
+    return rebuildController()
+  }
+
+  private fun handleConnectionFailure(future: ListenableFuture<MediaController>) {
+    if (controllerFuture !== future) return
+    controller = null
+    stopPositionTicker()
+    _state.value = PlaybackState(connection = PlaybackConnection.DISCONNECTED)
   }
 
   override fun togglePlayPause() {
