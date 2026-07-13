@@ -2,7 +2,7 @@
 
 日期：2026-07-13
 
-状态：待用户审阅书面规格
+状态：已批准
 
 父级规格：`docs/superpowers/specs/2026-07-13-yinyuehe-product-design.md`
 
