@@ -17,6 +17,17 @@ room {
   schemaDirectory("$projectDir/schemas")
 }
 
+configurations.configureEach {
+  if (name == "kspPluginClasspath") {
+    resolutionStrategy.force(
+      "org.jetbrains.kotlinx:kotlinx-serialization-core:1.8.1",
+      "org.jetbrains.kotlinx:kotlinx-serialization-core-jvm:1.8.1",
+      "org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.1",
+      "org.jetbrains.kotlinx:kotlinx-serialization-json-jvm:1.8.1",
+    )
+  }
+}
+
 dependencies {
   api(project(":core:common"))
   api(libs.kotlinx.coroutines.core)
