@@ -18,3 +18,4 @@ dependencyResolutionManagement {
 rootProject.name = "yinyuehe-android"
 
 include(":core:common")
+include(":core:data")
