@@ -20,7 +20,7 @@ M1 提供四首内置演示曲、Jetpack Compose 曲库首页和基于 Media3 `M
 环境：JDK 17、Android SDK 36。
 
 ```bash
-./gradlew testDebugUnitTest lintDebug assembleDebug
+./gradlew test testDebugUnitTest lintDebug assembleDebug --stacktrace
 ```
 
 APK：`app/build/outputs/apk/debug/app-debug.apk`
