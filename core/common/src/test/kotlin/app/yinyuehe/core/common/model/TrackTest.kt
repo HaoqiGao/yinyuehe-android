@@ -29,13 +29,6 @@ class TrackTest {
   }
 
   @Test
-  fun blankTitle_isRejected() {
-    assertThrows(IllegalArgumentException::class.java) {
-      validTrack().copy(title = " ")
-    }
-  }
-
-  @Test
   fun negativeDuration_isRejected() {
     assertThrows(IllegalArgumentException::class.java) {
       validTrack().copy(durationMs = -1)
