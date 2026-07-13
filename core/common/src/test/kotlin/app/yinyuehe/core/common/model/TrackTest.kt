@@ -42,6 +42,24 @@ class TrackTest {
     }
   }
 
+  @Test
+  fun missingTitle_isAllowedWhenDisplayNameCanDescribeTheRow() {
+    val track = validTrack().copy(title = null, displayName = "01 - Intro.flac")
+
+    assertEquals(null, track.title)
+    assertEquals("01 - Intro.flac", track.displayName)
+  }
+
+  @Test
+  fun negativeSize_isRejected() {
+    assertThrows(IllegalArgumentException::class.java) { validTrack().copy(sizeBytes = -1) }
+  }
+
+  @Test
+  fun blankNonNullTitle_isRejected() {
+    assertThrows(IllegalArgumentException::class.java) { validTrack().copy(title = " ") }
+  }
+
   private fun validTrack() =
     Track(
       id = TrackId("demo:test"),

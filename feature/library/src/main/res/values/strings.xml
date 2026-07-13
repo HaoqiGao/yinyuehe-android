@@ -1,0 +1,4 @@
+<resources>
+  <string name="unknown_track">未知曲目</string>
+  <string name="play_track_content_description">播放%1$s</string>
+</resources>
