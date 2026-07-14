@@ -47,7 +47,7 @@ Debug APK：`app/build/outputs/apk/debug/app-debug.apk`
 - [21 项验收矩阵](verification/acceptance-scenarios.md)
 - [2026-07-14 验证记录](verification/result-2026-07-14.md)
 
-当前 debug APK 为 `14,234,179` bytes，SHA-256 为 `322222be25951a32b954f9db8bcd90fc5d1eb9d0bfe41a1ab1479843b98ea8a4`；它不是签名 Release 产物。
+当前在本记录环境与本机 debug signing key 下捕获的 debug APK 为 `14,201,312` bytes，SHA-256 为 `183d5f13bae95485884e92882a8305c657e459437e7cb6d5368ca66636eef949`。clean source build 与两次 rerun 在本机得到相同字节，但该 SHA-256 只标识这份本地产物，不承诺跨机器或 keystore 字节复现；它不是签名 Release 产物。
 
 CI 在 pull request 和 `main` push 上使用 Temurin 17、隔离的 Android SDK 36，并执行与本地相同的门禁命令。
 
