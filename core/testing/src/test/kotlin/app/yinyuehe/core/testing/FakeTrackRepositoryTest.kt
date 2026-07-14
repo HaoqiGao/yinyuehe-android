@@ -91,12 +91,20 @@ class FakeTrackRepositoryTest {
   }
 
   @Test
-  fun userDataOperations_rejectMissingAndDemoTracks() = runTest {
-    val demo = track("demo:one", isDemo = true)
-    val repository = FakeTrackRepository(listOf(demo))
+  fun userDataOperations_supportDemoTracksAndRejectMissingTracks() = runTest {
+    val demos = (0 until 4).map { index -> track("demo:$index", isDemo = true) }
+    val repository = FakeTrackRepository(demos)
 
-    assertTrue(!repository.setFavorite(demo.id, true))
-    assertTrue(!repository.recordRecent(demo.id))
+    demos.forEach { demo ->
+      assertTrue(repository.setFavorite(demo.id, true))
+      assertTrue(repository.recordRecent(demo.id))
+    }
+
+    assertEquals(demos.map { it.id }.toSet(), repository.observeFavoriteTrackIds().first())
+    assertEquals(demos.toSet(), repository.observeFavoriteTracks().first().toSet())
+    assertEquals(demos.reversed(), repository.observeRecentTracks().first())
+    assertTrue(!repository.setFavorite(TrackId("missing"), true))
+    assertTrue(!repository.recordRecent(TrackId("missing")))
   }
 
   private fun track(id: String, isDemo: Boolean) =

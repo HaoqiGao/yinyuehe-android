@@ -30,7 +30,28 @@ class TrackDaoTest {
 
     assertEquals(
       listOf("local:a", "local:b"),
-      dao.observeAvailableTracks().first().map { it.mediaId },
+      dao.observeAvailableTracks(excludedVolumeName = DEMO_VOLUME_NAME).first().map { it.mediaId },
+    )
+  }
+
+  @Test
+  fun availableTracks_excludeTheReservedDemoVolume() = runTest {
+    dao.upsertTracks(
+      listOf(
+        trackEntity(mediaId = "local:one"),
+        trackEntity(
+          mediaId = "demo:anchor",
+          volumeName = DEMO_VOLUME_NAME,
+          mediaStoreId = -1,
+        ),
+      )
+    )
+
+    assertEquals(
+      listOf("local:one"),
+      dao.observeAvailableTracks(excludedVolumeName = DEMO_VOLUME_NAME).first().map {
+        it.mediaId
+      },
     )
   }
 

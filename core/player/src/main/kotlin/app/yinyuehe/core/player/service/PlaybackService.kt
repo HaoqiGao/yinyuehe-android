@@ -52,12 +52,13 @@ class PlaybackService : MediaLibraryService() {
     val listener =
       object : Player.Listener {
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-          recordUpdate(
-            eventTracker.onMediaItemTransition(
+          eventTracker
+            .onMediaItemTransition(
               mediaId = mediaItem?.mediaId,
               isPlaying = player.isPlaying,
+              reason = reason,
             )
-          )
+            .forEach(::recordUpdate)
         }
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {

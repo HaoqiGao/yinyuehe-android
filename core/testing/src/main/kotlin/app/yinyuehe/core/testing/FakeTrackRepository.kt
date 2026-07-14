@@ -25,25 +25,29 @@ class FakeTrackRepository(initialTracks: List<Track> = emptyList()) : TrackRepos
   override fun observeFavoriteTrackIds(): Flow<Set<TrackId>> = favoriteTrackIds
 
   override fun observeFavoriteTracks(): Flow<List<Track>> =
-    combine(localTracks, favoriteTrackIds) { tracks, favoriteIds ->
-        favoriteIds.mapNotNull { id -> tracks.find { it.id == id } }
+    combine(localTracks, demos, favoriteTrackIds) { localTracks, demoTracks, favoriteIds ->
+        val tracksById = (localTracks + demoTracks).associateBy { it.id }
+        favoriteIds.mapNotNull(tracksById::get)
       }
       .distinctUntilChanged()
 
   override fun observeRecentTracks(): Flow<List<Track>> = recentTracks
 
   override suspend fun setFavorite(trackId: TrackId, favorite: Boolean): Boolean {
-    if (localTracks.value.none { it.id == trackId }) return false
+    if (findTrack(trackId) == null) return false
     favoriteTrackIds.value =
       if (favorite) favoriteTrackIds.value + trackId else favoriteTrackIds.value - trackId
     return true
   }
 
   override suspend fun recordRecent(trackId: TrackId, positionMs: Long?): Boolean {
-    val track = localTracks.value.find { it.id == trackId } ?: return false
+    val track = findTrack(trackId) ?: return false
     recentTracks.value = listOf(track) + recentTracks.value.filterNot { it.id == trackId }.take(19)
     return true
   }
+
+  private fun findTrack(trackId: TrackId): Track? =
+    (localTracks.value + demos.value).find { it.id == trackId }
 
   override fun observeLibrary(): Flow<LibraryContent> =
     combine(localTracks, demos) { localTracks, demoTracks ->
