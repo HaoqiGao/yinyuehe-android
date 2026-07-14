@@ -69,7 +69,7 @@ interface TrackRepository {
 
 - `setFavorite` and `recordRecent` persist current catalog Demo IDs through reserved Room anchor rows; unknown Demo IDs and missing local IDs return `false`.
 - `AndroidMediaStoreGateway` enumerates API 29+ external volume names and uses the legacy external collection on API 26-28. It queries only `IS_MUSIC != 0`, cleans blank/`<unknown>` metadata, closes every Cursor, and returns platform-neutral rows.
-- `DefaultLibraryScanner` performs a complete snapshot per volume, maps stable IDs, then atomically upserts the completed volume and marks rows with a different scan token unavailable. A query failure skips the transaction for that volume.
+- `DefaultLibraryScanner` reads and validates every current-volume snapshot before one atomic multi-volume transaction; any failure or cancellation leaves all volume state unchanged, and missing volumes are reconciled in that same transaction.
 
 - [ ] **Step 1: Write failing scanner and identity tests**
 

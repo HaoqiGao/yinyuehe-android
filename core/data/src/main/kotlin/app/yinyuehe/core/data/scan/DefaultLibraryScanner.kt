@@ -13,6 +13,8 @@ import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 @Singleton
 class DefaultLibraryScanner @Inject internal constructor(
@@ -21,7 +23,12 @@ class DefaultLibraryScanner @Inject internal constructor(
   private val trackDao: TrackDao,
   private val checkpointDao: ScanCheckpointDao,
 ) : LibraryScanner {
+  private val scanMutex = Mutex()
+
   override suspend fun scan(): Result<ScanResult> =
+    scanMutex.withLock { scanOnce() }
+
+  private suspend fun scanOnce(): Result<ScanResult> =
     try {
       val volumes = gateway.externalVolumeNames()
       check(volumes.size == volumes.distinct().size) {
