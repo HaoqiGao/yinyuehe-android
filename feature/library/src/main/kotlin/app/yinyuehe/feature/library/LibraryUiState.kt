@@ -12,6 +12,7 @@ data class LibraryUiState(
   val favoriteTrackIds: Set<TrackId> = emptySet(),
   val favoriteTracks: List<Track> = emptyList(),
   val recentTracks: List<Track> = emptyList(),
+  val trackCatalog: Map<TrackId, Track> = emptyMap(),
   val playback: PlaybackState = PlaybackState(),
   val isLoading: Boolean = true,
   val hasAudioPermission: Boolean = false,
@@ -19,11 +20,8 @@ data class LibraryUiState(
   val isScanning: Boolean = false,
   val errorCode: LibraryErrorCode? = null,
 ) {
-  val allKnownTracks: List<Track>
-    get() = (libraryTracks + favoriteTracks + recentTracks).distinctBy(Track::id)
-
   val currentTrack: Track?
-    get() = allKnownTracks.firstOrNull { it.id == playback.currentTrackId }
+    get() = playback.currentTrackId?.let(trackCatalog::get)
 
   fun tracksFor(collection: TrackCollection): List<Track> =
     when (collection) {

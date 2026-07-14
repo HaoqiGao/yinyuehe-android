@@ -13,7 +13,10 @@ sealed interface MusicBoxAction {
 
   data object RequestAudioPermission : MusicBoxAction
 
-  data class AudioPermissionResult(val granted: Boolean) : MusicBoxAction
+  data class AudioPermissionResult(
+    val granted: Boolean,
+    val userInitiated: Boolean = false,
+  ) : MusicBoxAction
 
   data object Rescan : MusicBoxAction
 

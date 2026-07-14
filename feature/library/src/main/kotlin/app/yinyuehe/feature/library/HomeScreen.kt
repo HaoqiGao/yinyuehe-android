@@ -25,6 +25,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import app.yinyuehe.core.common.model.LibrarySource
@@ -78,9 +80,10 @@ internal fun HomeScreen(
       } else {
         TextButton(
           onClick = { onAction(MusicBoxAction.RequestAudioPermission) },
+          enabled = !state.permissionRequestPending,
           modifier = Modifier.sizeIn(minHeight = MinimumTouchTarget).testTag("home-request-permission"),
         ) {
-          Text("授权并扫描本地音乐")
+          Text(if (state.permissionRequestPending) "等待授权结果" else "授权并扫描本地音乐")
         }
       }
     }
@@ -134,6 +137,7 @@ private fun HomeTrackRow(
         onClick = { onAction(MusicBoxAction.AddToQueue(track.id)) },
         modifier =
           Modifier.sizeIn(minWidth = MinimumTouchTarget, minHeight = MinimumTouchTarget)
+            .semantics { contentDescription = "将${track.displayTitle}加入播放队列" }
             .testTag("home-add-queue-${track.id.value}"),
       ) {
         Text("+")
@@ -142,6 +146,10 @@ private fun HomeTrackRow(
         onClick = { onAction(MusicBoxAction.ToggleFavorite(track.id)) },
         modifier =
           Modifier.sizeIn(minWidth = MinimumTouchTarget, minHeight = MinimumTouchTarget)
+            .semantics {
+              contentDescription =
+                if (isFavorite) "取消收藏${track.displayTitle}" else "收藏${track.displayTitle}"
+            }
             .testTag("home-favorite-${track.id.value}"),
       ) {
         Text(if (isFavorite) "♥" else "♡")

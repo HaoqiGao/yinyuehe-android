@@ -15,6 +15,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 @Composable
@@ -26,7 +27,12 @@ fun LibraryRoute(
 ) {
   val state by viewModel.uiState.collectAsStateWithLifecycle()
   LaunchedEffect(hasAudioPermission, permissionResultVersion) {
-    viewModel.onAction(MusicBoxAction.AudioPermissionResult(hasAudioPermission))
+    viewModel.onAction(
+      MusicBoxAction.AudioPermissionResult(
+        granted = hasAudioPermission,
+        userInitiated = permissionResultVersion > 0,
+      )
+    )
   }
   LibraryScreen(state) { action ->
     viewModel.onAction(action)
@@ -58,6 +64,7 @@ fun LibraryScreen(
       state.errorCode?.let { error ->
         Text(
           text = error.message,
+          modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp),
           color = MaterialTheme.colorScheme.error,
           style = MaterialTheme.typography.bodySmall,
         )

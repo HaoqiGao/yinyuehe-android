@@ -28,11 +28,12 @@ class MainActivity : ComponentActivity() {
 
   private val activityStartElapsedMs = SystemClock.elapsedRealtime()
   private var permissionState by mutableStateOf(AudioPermissionState())
+  private lateinit var audioPermission: String
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     enableEdgeToEdge()
-    val permission = requiredAudioPermission(Build.VERSION.SDK_INT)
+    audioPermission = requiredAudioPermission(Build.VERSION.SDK_INT)
     val launcher =
       registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         permissionState =
@@ -41,19 +42,29 @@ class MainActivity : ComponentActivity() {
             resultVersion = permissionState.resultVersion + 1,
           )
       }
-    permissionState =
-      AudioPermissionState(
-        granted = ContextCompat.checkSelfPermission(this, permission) ==
-          android.content.pm.PackageManager.PERMISSION_GRANTED,
-      )
+    refreshAudioPermission()
 
     setContent {
       YinYueHeApp(
         hasAudioPermission = permissionState.granted,
         permissionResultVersion = permissionState.resultVersion,
-        onRequestAudioPermission = { launcher.launch(permission) },
+        onRequestAudioPermission = { launcher.launch(audioPermission) },
         onFirstFrame = ::recordFirstFrame,
       )
+    }
+  }
+
+  override fun onResume() {
+    super.onResume()
+    if (::audioPermission.isInitialized) refreshAudioPermission()
+  }
+
+  private fun refreshAudioPermission() {
+    val granted =
+      ContextCompat.checkSelfPermission(this, audioPermission) ==
+        android.content.pm.PackageManager.PERMISSION_GRANTED
+    if (permissionState.granted != granted) {
+      permissionState = permissionState.copy(granted = granted)
     }
   }
 

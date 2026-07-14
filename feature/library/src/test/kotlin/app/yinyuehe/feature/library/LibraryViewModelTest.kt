@@ -6,6 +6,7 @@ import app.yinyuehe.core.common.analytics.PlaybackEventRecorder
 import app.yinyuehe.core.common.model.LibrarySource
 import app.yinyuehe.core.common.model.Track
 import app.yinyuehe.core.common.model.TrackId
+import app.yinyuehe.core.data.TrackRepository
 import app.yinyuehe.core.data.scan.LibraryScanner
 import app.yinyuehe.core.data.scan.ScanResult
 import app.yinyuehe.core.player.PlaybackController
@@ -13,7 +14,12 @@ import app.yinyuehe.core.player.PlaybackConnection
 import app.yinyuehe.core.player.PlaybackState
 import app.yinyuehe.core.testing.FakeTrackRepository
 import app.yinyuehe.core.testing.MainDispatcherRule
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -186,7 +192,7 @@ class LibraryViewModelTest {
 
     viewModel.onAction(MusicBoxAction.RequestAudioPermission)
     assertTrue(viewModel.uiState.value.permissionRequestPending)
-    viewModel.onAction(MusicBoxAction.AudioPermissionResult(false))
+    viewModel.onAction(MusicBoxAction.AudioPermissionResult(false, userInitiated = true))
     advanceUntilIdle()
 
     assertEquals(0, scanner.scanCount)
@@ -194,7 +200,7 @@ class LibraryViewModelTest {
     assertEquals(demos, viewModel.uiState.value.libraryTracks)
     assertEquals(LibraryErrorCode.PERMISSION_REQUIRED, viewModel.uiState.value.errorCode)
 
-    viewModel.onAction(MusicBoxAction.AudioPermissionResult(true))
+    viewModel.onAction(MusicBoxAction.AudioPermissionResult(true, userInitiated = true))
     advanceUntilIdle()
 
     assertEquals(1, scanner.scanCount)
@@ -202,24 +208,213 @@ class LibraryViewModelTest {
     assertFalse(viewModel.uiState.value.isScanning)
   }
 
+  @Test
+  fun cachedLocalTracks_areHiddenUntilPermissionAndRefilteredAcrossRevokeAndRegrant() =
+    runTest {
+      val demo = track("demo")
+      val local = track("local", isDemo = false)
+      val repository = FakeTrackRepository(listOf(demo)).apply { setLocalTracks(listOf(local)) }
+      repository.setFavorite(demo.id, true)
+      repository.setFavorite(local.id, true)
+      repository.recordRecent(local.id)
+      repository.recordRecent(demo.id)
+      val scanner = RecordingLibraryScanner()
+      val viewModel = viewModel(repository, scanner = scanner)
+      advanceUntilIdle()
+
+      assertEquals(LibrarySource.DEMO, viewModel.uiState.value.librarySource)
+      assertEquals(listOf(demo), viewModel.uiState.value.libraryTracks)
+      assertEquals(setOf(demo.id), viewModel.uiState.value.favoriteTrackIds)
+      assertEquals(listOf(demo), viewModel.uiState.value.favoriteTracks)
+      assertEquals(listOf(demo), viewModel.uiState.value.recentTracks)
+      assertEquals(null, viewModel.uiState.value.errorCode)
+
+      viewModel.onAction(MusicBoxAction.AudioPermissionResult(true, userInitiated = false))
+      advanceUntilIdle()
+
+      assertEquals(LibrarySource.LOCAL, viewModel.uiState.value.librarySource)
+      assertEquals(listOf(local), viewModel.uiState.value.libraryTracks)
+      assertEquals(setOf(demo.id, local.id), viewModel.uiState.value.favoriteTrackIds)
+      assertEquals(listOf(demo, local), viewModel.uiState.value.recentTracks)
+
+      viewModel.onAction(MusicBoxAction.AudioPermissionResult(false, userInitiated = false))
+      advanceUntilIdle()
+
+      assertEquals(LibrarySource.DEMO, viewModel.uiState.value.librarySource)
+      assertEquals(listOf(demo), viewModel.uiState.value.libraryTracks)
+      assertEquals(setOf(demo.id), viewModel.uiState.value.favoriteTrackIds)
+      assertEquals(listOf(demo), viewModel.uiState.value.favoriteTracks)
+      assertEquals(listOf(demo), viewModel.uiState.value.recentTracks)
+      assertEquals(LibraryErrorCode.PERMISSION_REQUIRED, viewModel.uiState.value.errorCode)
+
+      viewModel.onAction(MusicBoxAction.AudioPermissionResult(true, userInitiated = false))
+      advanceUntilIdle()
+
+      assertEquals(listOf(local), viewModel.uiState.value.libraryTracks)
+      assertEquals(setOf(demo.id, local.id), viewModel.uiState.value.favoriteTrackIds)
+      assertEquals(2, scanner.scanCount)
+    }
+
+  @Test
+  fun permissionRevocation_neverPublishesNoPermissionWithCachedLocalTracks() = runTest {
+    val demo = track("demo")
+    val local = track("local", isDemo = false)
+    val repository = FakeTrackRepository(listOf(demo)).apply { setLocalTracks(listOf(local)) }
+    repository.setFavorite(local.id, true)
+    repository.recordRecent(local.id)
+    val viewModel = viewModel(repository)
+    val observed = mutableListOf<LibraryUiState>()
+    backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+      viewModel.uiState.collect(observed::add)
+    }
+
+    viewModel.onAction(MusicBoxAction.AudioPermissionResult(true, userInitiated = false))
+    advanceUntilIdle()
+    observed.clear()
+
+    viewModel.onAction(MusicBoxAction.AudioPermissionResult(false, userInitiated = false))
+    advanceUntilIdle()
+
+    val inconsistentStates =
+      observed.filter { state ->
+        !state.hasAudioPermission &&
+          (state.libraryTracks + state.favoriteTracks + state.recentTracks +
+              state.trackCatalog.values).any { track -> !track.isDemo }
+      }
+    assertTrue("No-permission states must never expose cached local tracks", inconsistentStates.isEmpty())
+  }
+
+  @Test
+  fun permissionRevocation_cancelsActiveScanAndClearsScanningFlag() = runTest {
+    val started = CompletableDeferred<Unit>()
+    val cancelled = CompletableDeferred<Unit>()
+    val scanner =
+      RecordingLibraryScanner {
+        started.complete(Unit)
+        try {
+          awaitCancellation()
+        } catch (cancellation: CancellationException) {
+          cancelled.complete(Unit)
+          throw cancellation
+        }
+      }
+    val viewModel = viewModel(FakeTrackRepository(listOf(track("demo"))), scanner = scanner)
+
+    viewModel.onAction(MusicBoxAction.AudioPermissionResult(true, userInitiated = false))
+    started.await()
+    assertTrue(viewModel.uiState.value.isScanning)
+
+    viewModel.onAction(MusicBoxAction.AudioPermissionResult(false, userInitiated = false))
+    cancelled.await()
+
+    assertFalse(viewModel.uiState.value.isScanning)
+    assertEquals(LibraryErrorCode.PERMISSION_REQUIRED, viewModel.uiState.value.errorCode)
+  }
+
+  @Test
+  fun initialPermissionObservation_doesNotShowDenialErrorUntilUserDenies() = runTest {
+    val viewModel = viewModel(FakeTrackRepository(listOf(track("demo"))))
+
+    viewModel.onAction(MusicBoxAction.AudioPermissionResult(false, userInitiated = false))
+    assertEquals(null, viewModel.uiState.value.errorCode)
+
+    viewModel.onAction(MusicBoxAction.AudioPermissionResult(false, userInitiated = true))
+    assertEquals(LibraryErrorCode.PERMISSION_REQUIRED, viewModel.uiState.value.errorCode)
+  }
+
+  @Test
+  fun rapidFavoriteDoubleToggle_serializesWritesAndEndsAtLatestDesiredState() = runTest {
+    val one = track("one")
+    val delegate = FakeTrackRepository(listOf(one))
+    val repository = GatedFavoriteRepository(delegate)
+    val recorder = RecordingPlaybackEventRecorder()
+    val viewModel = viewModel(repository, recorder = recorder)
+
+    viewModel.onAction(MusicBoxAction.ToggleFavorite(one.id))
+    repository.firstWriteStarted.await()
+    viewModel.onAction(MusicBoxAction.ToggleFavorite(one.id))
+
+    assertFalse(one.id in viewModel.uiState.value.favoriteTrackIds)
+    assertEquals(listOf(true), repository.requestedValues)
+
+    repository.releaseFirstWrite.complete(Unit)
+    advanceUntilIdle()
+
+    assertEquals(listOf(true, false), repository.requestedValues)
+    assertFalse(one.id in viewModel.uiState.value.favoriteTrackIds)
+    assertEquals(2, recorder.events.count { it.name == PlaybackEventName.FAVORITE_CHANGED })
+    assertEquals(null, viewModel.uiState.value.errorCode)
+  }
+
+  @Test
+  fun positionOnlyPlaybackCallback_reusesCatalogIndexIdentity() = runTest {
+    val one = track("one")
+    val controller = RecordingPlaybackController()
+    val viewModel = viewModel(FakeTrackRepository(listOf(one)), controller)
+    advanceUntilIdle()
+    val originalCatalog = viewModel.uiState.value.trackCatalog
+
+    controller.emit(
+      PlaybackState(
+        connection = PlaybackConnection.CONNECTED,
+        currentTrackId = one.id,
+        positionMs = 500,
+        queueTrackIds = listOf(one.id),
+      )
+    )
+    advanceUntilIdle()
+
+    assertSame(originalCatalog, viewModel.uiState.value.trackCatalog)
+    assertSame(one, viewModel.uiState.value.currentTrack)
+  }
+
   private fun viewModel(
-    repository: FakeTrackRepository,
+    repository: TrackRepository,
     controller: RecordingPlaybackController = RecordingPlaybackController(),
     scanner: RecordingLibraryScanner = RecordingLibraryScanner(),
     recorder: RecordingPlaybackEventRecorder = RecordingPlaybackEventRecorder(),
   ) = LibraryViewModel(repository, controller, scanner, recorder)
 
-  private fun track(id: String) =
-    Track(TrackId(id), id, null, null, 1_000, null, "android.resource://app.yinyuehe/$id", true)
+  private fun track(id: String, isDemo: Boolean = true) =
+    Track(
+      TrackId(id),
+      id,
+      null,
+      null,
+      1_000,
+      null,
+      "android.resource://app.yinyuehe/$id",
+      isDemo,
+    )
 }
 
-private class RecordingLibraryScanner : LibraryScanner {
+private class RecordingLibraryScanner(
+  private val handler: suspend () -> Result<ScanResult> = {
+    Result.success(ScanResult(0, 0, 0))
+  }
+) : LibraryScanner {
   var scanCount = 0
-  var result: Result<ScanResult> = Result.success(ScanResult(0, 0, 0))
 
   override suspend fun scan(): Result<ScanResult> {
     scanCount += 1
-    return result
+    return handler()
+  }
+}
+
+private class GatedFavoriteRepository(
+  private val delegate: FakeTrackRepository,
+) : TrackRepository by delegate {
+  val firstWriteStarted = CompletableDeferred<Unit>()
+  val releaseFirstWrite = CompletableDeferred<Unit>()
+  val requestedValues = mutableListOf<Boolean>()
+
+  override suspend fun setFavorite(trackId: TrackId, favorite: Boolean): Boolean {
+    requestedValues += favorite
+    if (requestedValues.size == 1) {
+      firstWriteStarted.complete(Unit)
+      releaseFirstWrite.await()
+    }
+    return delegate.setFavorite(trackId, favorite)
   }
 }
 

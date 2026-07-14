@@ -16,10 +16,18 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import app.yinyuehe.core.common.model.TrackId
 
 @Composable
 internal fun PlayerScreen(
@@ -30,6 +38,15 @@ internal fun PlayerScreen(
   val playback = state.playback
   val duration = playback.durationMs.coerceAtLeast(0)
   val sliderMaximum = duration.coerceAtLeast(1).toFloat()
+  val queueEntries = remember(playback.queueTrackIds) {
+    playerQueueEntries(playback.queueTrackIds)
+  }
+  var seekState by remember(playback.currentTrackId) {
+    mutableStateOf(PlayerSeekState(playback.positionMs))
+  }
+  LaunchedEffect(playback.currentTrackId, playback.positionMs) {
+    seekState = seekState.onPlaybackPosition(playback.positionMs)
+  }
   Column(
     modifier =
       Modifier.fillMaxSize()
@@ -44,8 +61,13 @@ internal fun PlayerScreen(
     )
     Text(state.currentTrack?.artist.orEmpty(), style = MaterialTheme.typography.bodyMedium)
     Slider(
-      value = playback.positionMs.coerceIn(0, duration.coerceAtLeast(0)).toFloat(),
-      onValueChange = { onAction(MusicBoxAction.SeekTo(it.toLong())) },
+      value = seekState.displayedPositionMs.coerceIn(0, duration).toFloat(),
+      onValueChange = { position -> seekState = seekState.onDrag(position.toLong()) },
+      onValueChangeFinished = {
+        val commit = seekState.finishDrag()
+        seekState = commit.state
+        commit.positionMs?.let { position -> onAction(MusicBoxAction.SeekTo(position)) }
+      },
       valueRange = 0f..sliderMaximum,
       enabled = playback.canSeek && duration > 0,
       modifier = Modifier.fillMaxWidth().testTag("player-seek"),
@@ -90,11 +112,9 @@ internal fun PlayerScreen(
       modifier = Modifier.fillMaxSize().testTag("player-queue"),
       verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-      itemsIndexed(
-        playback.queueTrackIds,
-        key = { index, id -> "${id.value}#$index" },
-      ) { index, id ->
-        val title = state.allKnownTracks.firstOrNull { it.id == id }?.displayTitle ?: id.value
+      itemsIndexed(queueEntries, key = { _, entry -> entry.key }) { index, entry ->
+        val id = entry.trackId
+        val title = state.trackCatalog[id]?.displayTitle ?: id.value
         Row(
           modifier = Modifier.fillMaxWidth(),
           verticalAlignment = Alignment.CenterVertically,
@@ -107,6 +127,7 @@ internal fun PlayerScreen(
             onClick = { onAction(MusicBoxAction.JumpToQueueItem(index)) },
             modifier =
               Modifier.sizeIn(minHeight = MinimumTouchTarget)
+                .semantics { contentDescription = "跳转到$title" }
                 .testTag("player-queue-jump-$index"),
           ) {
             Text("跳转")
@@ -115,6 +136,7 @@ internal fun PlayerScreen(
             onClick = { onAction(MusicBoxAction.RemoveQueueItem(index)) },
             modifier =
               Modifier.sizeIn(minWidth = MinimumTouchTarget, minHeight = MinimumTouchTarget)
+                .semantics { contentDescription = "从队列移除$title" }
                 .testTag("player-queue-remove-$index"),
           ) {
             Text("移除")
@@ -122,5 +144,41 @@ internal fun PlayerScreen(
         }
       }
     }
+  }
+}
+
+internal data class PlayerSeekState(
+  val displayedPositionMs: Long,
+  val isDragging: Boolean = false,
+) {
+  fun onPlaybackPosition(positionMs: Long): PlayerSeekState =
+    if (isDragging) this else copy(displayedPositionMs = positionMs.coerceAtLeast(0))
+
+  fun onDrag(positionMs: Long): PlayerSeekState =
+    copy(displayedPositionMs = positionMs.coerceAtLeast(0), isDragging = true)
+
+  fun finishDrag(): PlayerSeekCommit =
+    PlayerSeekCommit(
+      state = copy(isDragging = false),
+      positionMs = displayedPositionMs.takeIf { isDragging },
+    )
+}
+
+internal data class PlayerSeekCommit(
+  val state: PlayerSeekState,
+  val positionMs: Long?,
+)
+
+internal data class PlayerQueueEntry(
+  val trackId: TrackId,
+  val key: String,
+)
+
+internal fun playerQueueEntries(trackIds: List<TrackId>): List<PlayerQueueEntry> {
+  val occurrences = mutableMapOf<TrackId, Int>()
+  return trackIds.map { trackId ->
+    val occurrence = occurrences.getOrDefault(trackId, 0)
+    occurrences[trackId] = occurrence + 1
+    PlayerQueueEntry(trackId = trackId, key = "${trackId.value}#$occurrence")
   }
 }

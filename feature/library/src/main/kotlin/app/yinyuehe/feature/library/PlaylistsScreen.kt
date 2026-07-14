@@ -19,6 +19,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import app.yinyuehe.core.common.model.Track
 
@@ -135,6 +137,10 @@ private fun PlaylistTrackRow(
       onClick = { onAction(MusicBoxAction.ToggleFavorite(track.id)) },
       modifier =
         Modifier.sizeIn(minWidth = MinimumTouchTarget, minHeight = MinimumTouchTarget)
+          .semantics {
+            contentDescription =
+              if (isFavorite) "取消收藏${track.displayTitle}" else "收藏${track.displayTitle}"
+          }
           .testTag(favoriteTag),
     ) {
       Text(if (isFavorite) "♥" else "♡")

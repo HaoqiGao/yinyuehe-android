@@ -3,12 +3,16 @@ package app.yinyuehe.feature.library
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.click
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithContentDescription
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.test.performTouchInput
 import app.yinyuehe.core.common.model.Track
 import app.yinyuehe.core.common.model.TrackId
 import app.yinyuehe.core.designsystem.theme.YinYueHeTheme
@@ -54,6 +58,8 @@ class LibraryScreenTest {
     composeRule.onNodeWithTag("home-play-all").performClick()
     composeRule.onNodeWithTag("home-play-random").performClick()
     composeRule.onNodeWithTag("home-play-one").performClick()
+    composeRule.onNodeWithContentDescription("收藏one").assertIsDisplayed()
+    composeRule.onNodeWithContentDescription("将one加入播放队列").assertIsDisplayed()
     composeRule.onNodeWithTag("home-favorite-one").performClick()
     composeRule.onNodeWithTag("home-add-queue-one").performClick()
 
@@ -97,16 +103,18 @@ class LibraryScreenTest {
     composeRule.onNodeWithTag("player-toggle").performClick()
     composeRule.onNodeWithTag("player-previous").performClick()
     composeRule.onNodeWithTag("player-next").performClick()
-    composeRule.onNodeWithTag("player-seek").performSemanticsAction(SemanticsActions.SetProgress) {
-      it(500f)
+    composeRule.onNodeWithTag("player-seek").performTouchInput {
+      click(percentOffset(x = 0.75f, y = 0.5f))
     }
+    composeRule.onNodeWithContentDescription("跳转到one").assertIsDisplayed()
+    composeRule.onNodeWithContentDescription("从队列移除one").assertIsDisplayed()
     composeRule.onNodeWithTag("player-queue-jump-0").performClick()
     composeRule.onNodeWithTag("player-queue-remove-0").performClick()
 
     assertTrue(MusicBoxAction.TogglePlayPause in actions)
     assertTrue(MusicBoxAction.Previous in actions)
     assertTrue(MusicBoxAction.Next in actions)
-    assertTrue(MusicBoxAction.SeekTo(500) in actions)
+    assertEquals(1, actions.filterIsInstance<MusicBoxAction.SeekTo>().size)
     assertTrue(MusicBoxAction.JumpToQueueItem(0) in actions)
     assertTrue(MusicBoxAction.RemoveQueueItem(0) in actions)
   }
@@ -152,6 +160,7 @@ class LibraryScreenTest {
     composeRule.onNodeWithTag("favorites-play-random").performClick()
     composeRule.onNodeWithTag("recent-play-all").performClick()
     composeRule.onNodeWithTag("recent-play-random").performClick()
+    composeRule.onAllNodesWithContentDescription("取消收藏one").assertCountEquals(2)
     composeRule.onNodeWithTag("playlists-favorite-one").performClick()
 
     assertEquals(
@@ -166,11 +175,28 @@ class LibraryScreenTest {
     )
   }
 
+  @Test
+  fun pendingPermissionRequest_disablesRequestButton() {
+    composeRule.setContent {
+      YinYueHeTheme {
+        LibraryScreen(
+          screenState().copy(permissionRequestPending = true),
+          onAction = {},
+        )
+      }
+    }
+
+    composeRule.onNodeWithTag("home-request-permission").assertIsNotEnabled()
+  }
+
   private fun screenState(vararg tracks: Track) =
-    LibraryUiState(
-      isLoading = false,
-      libraryTracks = tracks.toList().ifEmpty { listOf(track("one")) },
-    )
+    tracks.toList().ifEmpty { listOf(track("one")) }.let { catalog ->
+      LibraryUiState(
+        isLoading = false,
+        libraryTracks = catalog,
+        trackCatalog = catalog.associateBy(Track::id),
+      )
+    }
 
   private fun track(id: String) =
     Track(TrackId(id), id, "Artist", null, 1_000, null, "uri:$id", true)
