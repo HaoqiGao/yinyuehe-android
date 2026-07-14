@@ -8,12 +8,15 @@ internal data class PlayerSnapshot(
   val currentIndex: Int,
   val isPlaying: Boolean,
   val playWhenReady: Boolean,
+  val hasCurrentMediaItem: Boolean,
+  val isIdle: Boolean,
   val isEnded: Boolean,
   val positionMs: Long,
   val durationMs: Long,
   val queueMediaIds: List<String>,
   val shuffleEnabled: Boolean,
   val canPlayPause: Boolean,
+  val canPrepare: Boolean,
   val canSeekToDefaultPosition: Boolean,
   val canSeek: Boolean,
   val canPrevious: Boolean,
@@ -29,8 +32,11 @@ internal fun PlayerSnapshot.toPlaybackState(): PlaybackState {
   val toggleDecision =
     playbackToggleDecision(
       playWhenReady = playWhenReady,
+      hasCurrentMediaItem = hasCurrentMediaItem,
+      isIdle = isIdle,
       isEnded = isEnded,
       canPlayPause = canPlayPause,
+      canPrepare = canPrepare,
       canSeekToDefaultPosition = canSeekToDefaultPosition,
     )
   return PlaybackState(

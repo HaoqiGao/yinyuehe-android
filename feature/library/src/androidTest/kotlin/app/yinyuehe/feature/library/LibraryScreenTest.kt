@@ -29,7 +29,7 @@ class LibraryScreenTest {
   @get:Rule val composeRule = createComposeRule()
 
   @Test
-  fun playerToggle_usesDerivedActionAndAvailability() {
+  fun playerToggle_usesDerivedPlayPauseLabelsAndAvailability() {
     var state by
       mutableStateOf(
         screenState().copy(
@@ -57,6 +57,17 @@ class LibraryScreenTest {
       )
 
     composeRule.onNodeWithContentDescription("播放").assertIsNotEnabled()
+
+    state =
+      state.copy(
+        playback =
+          PlaybackState(
+            toggleAction = PlaybackToggleAction.PLAY,
+            canTogglePlayPause = true,
+          )
+      )
+
+    composeRule.onNodeWithContentDescription("播放").assertIsEnabled()
   }
 
   @Test

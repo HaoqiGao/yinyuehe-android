@@ -240,18 +240,23 @@ private fun Player.snapshot(connection: PlaybackConnection): PlayerSnapshot {
   val itemCount = mediaItemCount
   val queueMediaIds = List(itemCount) { getMediaItemAt(it).mediaId }
   val index = currentMediaItemIndex.takeIf { it in queueMediaIds.indices } ?: C.INDEX_UNSET
+  val currentItem = currentMediaItem
+  val currentPlaybackState = playbackState
   return PlayerSnapshot(
     connection = connection,
-    currentMediaId = currentMediaItem?.mediaId,
+    currentMediaId = currentItem?.mediaId,
     currentIndex = index,
     isPlaying = isPlaying,
     playWhenReady = playWhenReady,
-    isEnded = playbackState == Player.STATE_ENDED,
+    hasCurrentMediaItem = currentItem != null,
+    isIdle = currentPlaybackState == Player.STATE_IDLE,
+    isEnded = currentPlaybackState == Player.STATE_ENDED,
     positionMs = currentPosition,
     durationMs = duration.takeUnless { it == C.TIME_UNSET } ?: 0,
     queueMediaIds = queueMediaIds,
     shuffleEnabled = shuffleModeEnabled,
     canPlayPause = isCommandAvailable(Player.COMMAND_PLAY_PAUSE),
+    canPrepare = isCommandAvailable(Player.COMMAND_PREPARE),
     canSeekToDefaultPosition = isCommandAvailable(Player.COMMAND_SEEK_TO_DEFAULT_POSITION),
     canSeek = isCommandAvailable(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM),
     canPrevious =

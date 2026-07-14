@@ -69,6 +69,56 @@ class PlayerSnapshotTest {
   }
 
   @Test
+  fun emptyQueue_mapsToDisabledPlayActionEvenWhenPlayPauseIsAvailable() {
+    val state =
+      snapshot(
+          playWhenReady = false,
+          isEnded = false,
+          canPlayPause = true,
+          canSeekToDefaultPosition = true,
+          hasCurrentMediaItem = false,
+        )
+        .toPlaybackState()
+
+    assertEquals(PlaybackToggleAction.PLAY, state.toggleAction)
+    assertFalse(state.canTogglePlayPause)
+  }
+
+  @Test
+  fun idleCurrentItem_mapsToEnabledPlayActionWhenPrepareIsAvailable() {
+    val state =
+      snapshot(
+          playWhenReady = true,
+          isEnded = false,
+          canPlayPause = true,
+          canSeekToDefaultPosition = false,
+          isIdle = true,
+          canPrepare = true,
+        )
+        .toPlaybackState()
+
+    assertEquals(PlaybackToggleAction.PLAY, state.toggleAction)
+    assertTrue(state.canTogglePlayPause)
+  }
+
+  @Test
+  fun idleCurrentItem_disablesPlayActionWhenPrepareIsUnavailable() {
+    val state =
+      snapshot(
+          playWhenReady = true,
+          isEnded = false,
+          canPlayPause = true,
+          canSeekToDefaultPosition = true,
+          isIdle = true,
+          canPrepare = false,
+        )
+        .toPlaybackState()
+
+    assertEquals(PlaybackToggleAction.PLAY, state.toggleAction)
+    assertFalse(state.canTogglePlayPause)
+  }
+
+  @Test
   fun snapshot_mapsMediaIdsFiltersBlanksAndPreservesConnection() {
     val state =
       PlayerSnapshot(
@@ -77,12 +127,15 @@ class PlayerSnapshotTest {
           currentIndex = 3,
           isPlaying = false,
           playWhenReady = false,
+          hasCurrentMediaItem = true,
+          isIdle = false,
           isEnded = false,
           positionMs = 250,
           durationMs = 1_000,
           queueMediaIds = listOf("demo:morning-pulse", "", "  ", "demo:city-walk"),
           shuffleEnabled = true,
           canPlayPause = false,
+          canPrepare = false,
           canSeekToDefaultPosition = false,
           canSeek = true,
           canPrevious = true,
@@ -113,12 +166,15 @@ class PlayerSnapshotTest {
           currentIndex = -1,
           isPlaying = false,
           playWhenReady = false,
+          hasCurrentMediaItem = false,
+          isIdle = false,
           isEnded = false,
           positionMs = -1,
           durationMs = C.TIME_UNSET,
           queueMediaIds = emptyList(),
           shuffleEnabled = false,
           canPlayPause = false,
+          canPrepare = false,
           canSeekToDefaultPosition = false,
           canSeek = false,
           canPrevious = false,
@@ -139,12 +195,15 @@ class PlayerSnapshotTest {
           currentIndex = 0,
           isPlaying = false,
           playWhenReady = false,
+          hasCurrentMediaItem = false,
+          isIdle = false,
           isEnded = false,
           positionMs = 0,
           durationMs = 0,
           queueMediaIds = emptyList(),
           shuffleEnabled = false,
           canPlayPause = false,
+          canPrepare = false,
           canSeekToDefaultPosition = false,
           canSeek = false,
           canPrevious = false,
@@ -161,19 +220,25 @@ private fun snapshot(
   isEnded: Boolean,
   canPlayPause: Boolean,
   canSeekToDefaultPosition: Boolean,
+  hasCurrentMediaItem: Boolean = true,
+  isIdle: Boolean = false,
+  canPrepare: Boolean = true,
 ) =
   PlayerSnapshot(
     connection = PlaybackConnection.CONNECTED,
-    currentMediaId = "local:one",
-    currentIndex = 0,
+    currentMediaId = "local:one".takeIf { hasCurrentMediaItem },
+    currentIndex = if (hasCurrentMediaItem) 0 else C.INDEX_UNSET,
     isPlaying = false,
     playWhenReady = playWhenReady,
+    hasCurrentMediaItem = hasCurrentMediaItem,
+    isIdle = isIdle,
     isEnded = isEnded,
     positionMs = 0,
     durationMs = 1_000,
-    queueMediaIds = listOf("local:one"),
+    queueMediaIds = if (hasCurrentMediaItem) listOf("local:one") else emptyList(),
     shuffleEnabled = false,
     canPlayPause = canPlayPause,
+    canPrepare = canPrepare,
     canSeekToDefaultPosition = canSeekToDefaultPosition,
     canSeek = true,
     canPrevious = false,

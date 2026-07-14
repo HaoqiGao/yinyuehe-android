@@ -6,6 +6,8 @@ enum class PlaybackConnection { CONNECTING, CONNECTED, DISCONNECTED }
 
 enum class PlaybackToggleAction { PLAY, PAUSE }
 
+internal enum class PlaybackTogglePreparation { NONE, PREPARE, SEEK_TO_DEFAULT_POSITION }
+
 data class PlaybackState(
   val connection: PlaybackConnection = PlaybackConnection.CONNECTING,
   val currentTrackId: TrackId? = null,
@@ -25,20 +27,40 @@ data class PlaybackState(
 internal data class PlaybackToggleDecision(
   val action: PlaybackToggleAction,
   val canDispatch: Boolean,
+  val preparation: PlaybackTogglePreparation,
 )
 
 internal fun playbackToggleDecision(
   playWhenReady: Boolean,
+  hasCurrentMediaItem: Boolean,
+  isIdle: Boolean,
   isEnded: Boolean,
   canPlayPause: Boolean,
+  canPrepare: Boolean,
   canSeekToDefaultPosition: Boolean,
-): PlaybackToggleDecision =
-  PlaybackToggleDecision(
-    action =
-      if (isEnded || !shouldPauseForToggle(playWhenReady)) {
-        PlaybackToggleAction.PLAY
-      } else {
-        PlaybackToggleAction.PAUSE
-      },
-    canDispatch = canPlayPause && (!isEnded || canSeekToDefaultPosition),
+): PlaybackToggleDecision {
+  val preparation =
+    when {
+      !hasCurrentMediaItem -> PlaybackTogglePreparation.NONE
+      isIdle -> PlaybackTogglePreparation.PREPARE
+      isEnded -> PlaybackTogglePreparation.SEEK_TO_DEFAULT_POSITION
+      else -> PlaybackTogglePreparation.NONE
+    }
+  val action =
+    if (!hasCurrentMediaItem || isIdle || isEnded || !shouldPauseForToggle(playWhenReady)) {
+      PlaybackToggleAction.PLAY
+    } else {
+      PlaybackToggleAction.PAUSE
+    }
+  val canPrepareForAction =
+    when (preparation) {
+      PlaybackTogglePreparation.NONE -> true
+      PlaybackTogglePreparation.PREPARE -> canPrepare
+      PlaybackTogglePreparation.SEEK_TO_DEFAULT_POSITION -> canSeekToDefaultPosition
+    }
+  return PlaybackToggleDecision(
+    action = action,
+    canDispatch = hasCurrentMediaItem && canPlayPause && canPrepareForAction,
+    preparation = preparation,
   )
+}

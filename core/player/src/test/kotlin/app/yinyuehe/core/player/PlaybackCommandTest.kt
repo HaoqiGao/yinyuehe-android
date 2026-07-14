@@ -139,6 +139,48 @@ class PlaybackCommandTest {
   }
 
   @Test
+  fun togglePlayPause_doesNotDispatchForAnEmptyQueue() {
+    val emptyQueue =
+      RecordingPlayer(
+        mediaItemCount = 0,
+        availableCommands = setOf(Player.COMMAND_PLAY_PAUSE),
+      )
+
+    PlaybackCommandDispatcher(emptyQueue.instance).togglePlayPause()
+
+    assertTrue(emptyQueue.calls.isEmpty())
+  }
+
+  @Test
+  fun togglePlayPause_preparesAndPlaysAnIdleCurrentItemDespiteStalePlayWhenReady() {
+    val idle =
+      RecordingPlayer(
+        mediaItemCount = 1,
+        playWhenReady = true,
+        playbackState = Player.STATE_IDLE,
+        availableCommands = setOf(Player.COMMAND_PLAY_PAUSE, Player.COMMAND_PREPARE),
+      )
+
+    PlaybackCommandDispatcher(idle.instance).togglePlayPause()
+
+    assertEquals(listOf("prepare", "play"), idle.calls.map(Call::name))
+  }
+
+  @Test
+  fun togglePlayPause_doesNotPartiallyStartIdlePlaybackWhenPrepareIsUnavailable() {
+    val idle =
+      RecordingPlayer(
+        mediaItemCount = 1,
+        playbackState = Player.STATE_IDLE,
+        availableCommands = setOf(Player.COMMAND_PLAY_PAUSE),
+      )
+
+    PlaybackCommandDispatcher(idle.instance).togglePlayPause()
+
+    assertTrue(idle.calls.isEmpty())
+  }
+
+  @Test
   fun unavailablePlayerCommands_areNotDispatched() {
     val player = RecordingPlayer(mediaItemCount = 2, availableCommands = emptySet())
     val dispatcher = PlaybackCommandDispatcher(player.instance)
@@ -174,6 +216,7 @@ private data class Call(val name: String, val arguments: List<Any?>)
 
 private class RecordingPlayer(
   private val mediaItemCount: Int,
+  private val hasCurrentMediaItem: Boolean = mediaItemCount > 0,
   private val playWhenReady: Boolean = false,
   private val playbackState: Int = Player.STATE_READY,
   private val availableCommands: Set<Int> =
@@ -195,6 +238,12 @@ private class RecordingPlayer(
     Proxy.newProxyInstance(Player::class.java.classLoader, arrayOf(Player::class.java)) { _, method, args ->
         when (method.name) {
           "getMediaItemCount" -> mediaItemCount
+          "getCurrentMediaItem" ->
+            if (hasCurrentMediaItem) {
+              MediaItem.Builder().setMediaId("current").setUri("content://media/current").build()
+            } else {
+              null
+            }
           "getPlayWhenReady" -> playWhenReady
           "getPlaybackState" -> playbackState
           "isCommandAvailable" -> args?.single() in availableCommands

@@ -16,17 +16,24 @@ internal class PlaybackCommandDispatcher(private val player: Player) {
   }
 
   fun togglePlayPause() {
-    val isEnded = player.playbackState == Player.STATE_ENDED
+    val playbackState = player.playbackState
     val decision =
       playbackToggleDecision(
         playWhenReady = player.playWhenReady,
-        isEnded = isEnded,
+        hasCurrentMediaItem = player.currentMediaItem != null,
+        isIdle = playbackState == Player.STATE_IDLE,
+        isEnded = playbackState == Player.STATE_ENDED,
         canPlayPause = player.isCommandAvailable(Player.COMMAND_PLAY_PAUSE),
+        canPrepare = player.isCommandAvailable(Player.COMMAND_PREPARE),
         canSeekToDefaultPosition =
           player.isCommandAvailable(Player.COMMAND_SEEK_TO_DEFAULT_POSITION),
       )
     if (!decision.canDispatch) return
-    if (isEnded) player.seekToDefaultPosition()
+    when (decision.preparation) {
+      PlaybackTogglePreparation.NONE -> Unit
+      PlaybackTogglePreparation.PREPARE -> player.prepare()
+      PlaybackTogglePreparation.SEEK_TO_DEFAULT_POSITION -> player.seekToDefaultPosition()
+    }
     when (decision.action) {
       PlaybackToggleAction.PLAY -> player.play()
       PlaybackToggleAction.PAUSE -> player.pause()
