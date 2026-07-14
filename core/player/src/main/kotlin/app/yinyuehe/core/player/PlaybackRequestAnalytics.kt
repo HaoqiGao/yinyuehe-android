@@ -39,6 +39,14 @@ internal class PlaybackRequestAnalytics(
     )
   }
 
+  fun onPlaybackStartBoundary(trackId: TrackId?) {
+    if (trackId == null) {
+      timingTracker.clearPendingRequest()
+      return
+    }
+    onPlayerCallback(isPlaying = true, trackId = trackId)
+  }
+
   fun onPlayDispatchRejected() {
     onPlaybackFailure()
   }

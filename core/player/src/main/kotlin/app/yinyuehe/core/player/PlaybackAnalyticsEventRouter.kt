@@ -16,7 +16,7 @@ internal class PlaybackAnalyticsEventRouter(
       analytics.onPlaybackFailure()
     }
     if (isPlayingChanged && isPlaying) {
-      analytics.onPlayerCallback(isPlaying = true, trackId = trackId)
+      analytics.onPlaybackStartBoundary(trackId)
     }
   }
 }

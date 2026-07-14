@@ -87,6 +87,39 @@ class PlaybackRequestAnalyticsTest {
   }
 
   @Test
+  fun actualStartWithoutTrackId_invalidatesPendingLatency() = runTest {
+    val recorder = RecordingPlaybackEventRecorder()
+    val analytics =
+      PlaybackRequestAnalytics(
+        recorder = recorder,
+        scope = this,
+        timingTracker = PlaybackTimingTracker { 100L },
+        epochTimeMs = { 1_000L },
+      )
+    val router = PlaybackAnalyticsEventRouter(analytics)
+    val requested = TrackId("local:requested")
+
+    analytics.onPlayRequested(requested)
+    router.onEvents(
+      isPlayingChanged = true,
+      isPlaying = true,
+      trackId = null,
+      playerErrorChanged = false,
+      hasPlayerError = false,
+    )
+    router.onEvents(
+      isPlayingChanged = true,
+      isPlaying = true,
+      trackId = requested,
+      playerErrorChanged = false,
+      hasPlayerError = false,
+    )
+    advanceUntilIdle()
+
+    assertEquals(listOf(PlaybackEventName.PLAY_REQUESTED), recorder.events.map(PlaybackEvent::name))
+  }
+
+  @Test
   fun clearingAPriorPlayerError_doesNotClearANewerPendingRequest() = runTest {
     val recorder = RecordingPlaybackEventRecorder()
     val analytics =
@@ -179,6 +212,7 @@ class PlaybackRequestAnalyticsTest {
     analytics.onPlayRequested(requested)
     elapsedMs = 250L
     epochMs = 1_150L
+    analytics.onPlayerCallback(isPlaying = false, trackId = null)
     analytics.onPlayerCallback(isPlaying = false, trackId = requested)
     analytics.onPlayerCallback(isPlaying = true, trackId = requested)
     analytics.onPlayerCallback(isPlaying = true, trackId = requested)
