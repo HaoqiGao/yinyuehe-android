@@ -11,7 +11,7 @@ internal fun Track.toMediaItem(): MediaItem =
     .setUri(sourceUri)
     .setMediaMetadata(
       MediaMetadata.Builder()
-        .setTitle(title)
+        .setTitle(title ?: displayName)
         .setArtist(artist)
         .setAlbumTitle(album)
         .setArtworkUri(artworkUri?.let(Uri::parse))

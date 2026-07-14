@@ -2,9 +2,8 @@ package app.yinyuehe.core.data
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import app.yinyuehe.core.data.repository.RoomTrackRepository
 import dagger.Binds
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -29,19 +28,11 @@ class DemoTrackCatalogTest {
   }
 
   @Test
-  fun observeTracks_emitsDemoCatalog() = runBlocking {
-    val catalog = DemoTrackCatalog(context)
-    val repository = DemoTrackRepository(catalog)
-
-    assertEquals(catalog.tracks(), repository.observeTracks().first())
-  }
-
-  @Test
-  fun dataModule_bindsDemoRepositoryAsTrackRepository() {
+  fun dataModule_bindsRoomRepositoryAsTrackRepository() {
     val binding =
       DataModule::class.java.getDeclaredMethod(
         "bindTrackRepository",
-        DemoTrackRepository::class.java,
+        RoomTrackRepository::class.java,
       )
 
     assertTrue(binding.isAnnotationPresent(Binds::class.java))

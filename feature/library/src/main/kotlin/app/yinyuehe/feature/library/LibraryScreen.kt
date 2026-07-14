@@ -23,6 +23,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -93,11 +94,14 @@ private val PlaybackError.message: String
 
 @Composable
 private fun TrackRow(track: Track, onTrackClick: (TrackId) -> Unit) {
+  val displayTitle = track.title ?: track.displayName ?: stringResource(R.string.unknown_track)
+  val playDescription = stringResource(R.string.play_track_content_description, displayTitle)
+
   Card(
     modifier =
       Modifier.fillMaxWidth()
         .clickable { onTrackClick(track.id) }
-        .semantics { contentDescription = "播放${track.title}" },
+        .semantics { contentDescription = playDescription },
     shape = RoundedCornerShape(18.dp),
     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
   ) {
@@ -112,7 +116,7 @@ private fun TrackRow(track: Track, onTrackClick: (TrackId) -> Unit) {
       )
       Spacer(Modifier.size(14.dp))
       Column(Modifier.weight(1f)) {
-        Text(track.title, style = MaterialTheme.typography.titleMedium)
+        Text(displayTitle, style = MaterialTheme.typography.titleMedium)
         Text(
           track.artist.orEmpty(),
           style = MaterialTheme.typography.bodySmall,
