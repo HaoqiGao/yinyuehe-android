@@ -28,4 +28,15 @@ interface TrackDao {
 
   @Query("DELETE FROM tracks WHERE mediaId = :mediaId")
   suspend fun deleteByMediaId(mediaId: String)
+
+  @Query(
+    """
+    UPDATE tracks
+    SET isAvailable = 0
+    WHERE volumeName = :volumeName
+      AND lastSeenScanToken != :scanToken
+      AND isAvailable = 1
+    """
+  )
+  suspend fun markUnavailableNotSeenInScan(volumeName: String, scanToken: String): Int
 }

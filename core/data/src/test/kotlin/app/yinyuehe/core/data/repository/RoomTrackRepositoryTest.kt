@@ -28,7 +28,13 @@ class RoomTrackRepositoryTest {
     get() = DemoTrackCatalog(context)
 
   private val repository
-    get() = RoomTrackRepository(trackDao, demoCatalog)
+    get() =
+      RoomTrackRepository(
+        trackDao = trackDao,
+        favoriteDao = databaseRule.database.favoriteDao(),
+        recentPlayDao = databaseRule.database.recentPlayDao(),
+        demoCatalog = demoCatalog,
+      )
 
   @Test
   fun emptyRoom_emitsOnlyDemoCatalog() = runTest {

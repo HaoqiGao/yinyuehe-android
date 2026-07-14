@@ -73,6 +73,32 @@ class FakeTrackRepositoryTest {
     assertEquals(locals, repository.observeTracks().first())
   }
 
+  @Test
+  fun favoriteAndRecentOperations_modelPersistedLocalTracks() = runTest {
+    val locals = (0 until 21).map { track("local:$it", isDemo = false) }
+    val repository = FakeTrackRepository(locals)
+    val existingId = locals.first().id
+
+    assertTrue(repository.setFavorite(existingId, true))
+    assertEquals(setOf(existingId), repository.observeFavoriteTrackIds().first())
+    assertEquals(listOf(locals.first()), repository.observeFavoriteTracks().first())
+    assertTrue(repository.setFavorite(existingId, false))
+    assertTrue(repository.observeFavoriteTracks().first().isEmpty())
+
+    locals.forEach { assertTrue(repository.recordRecent(it.id)) }
+    assertEquals(20, repository.observeRecentTracks().first().size)
+    assertEquals(locals.last(), repository.observeRecentTracks().first().first())
+  }
+
+  @Test
+  fun userDataOperations_rejectMissingAndDemoTracks() = runTest {
+    val demo = track("demo:one", isDemo = true)
+    val repository = FakeTrackRepository(listOf(demo))
+
+    assertTrue(!repository.setFavorite(demo.id, true))
+    assertTrue(!repository.recordRecent(demo.id))
+  }
+
   private fun track(id: String, isDemo: Boolean) =
     Track(
       id = TrackId(id),
