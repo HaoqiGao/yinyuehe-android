@@ -9,7 +9,7 @@
 - **Media3 播放**：ExoPlayer + `MediaLibraryService` + MediaSession，支持后台播放、媒体通知、系统媒体按键、播放全部/随机、上一首/下一首、进度拖动、队列追加/删除/跳转。
 - **用户数据**：Room + Flow 持久化收藏与最近播放；最近播放按曲目聚合、最新优先且固定最多 20 条，四首 Demo 同样可持久化。
 - **系统音频协作**：Media3 管理 AudioFocus，并启用 audio-becoming-noisy 自动处理。模拟器已验证后台、通知和系统 pause/play；真实抢占及耳机/蓝牙断开仍列为物理设备待验项。
-- **质量事件**：本地匿名记录 `PLAY_REQUESTED`、`PLAYBACK_STARTED`、`TRACK_CHANGED`、`PLAYBACK_COMPLETED`、`FAVORITE_CHANGED`、`FIRST_FRAME` 与 `PLAY_START_LATENCY`，事件表保留最新 500 条，不记录标题、路径或 URI。
+- **质量事件**：事件只写入本地 Room，当前没有上传链路。每条记录包含事件类型、可选稳定 `trackId`、时间戳和可选耗时；事件表保留最新 500 条，不记录标题、路径或 URI。稳定 `trackId` 在本地仍可关联同一曲目，因此不把这些数据描述为匿名数据。
 
 项目当前不包含在线歌词、在线元数据、账号或后端服务。
 
@@ -52,14 +52,14 @@ CI 在 pull request 和 `main` push 上使用 Temurin 17、隔离的 Android SDK
 ## 已知验证边界
 
 - AudioFocus 被其他真实应用抢占，以及有线耳机/蓝牙输出断开，尚未在物理设备执行；矩阵保持 `PENDING_DEVICE`。
-- 冷启动与内存数据来自单台 API 36 模拟器，只作为可复现基线，不代表启动优化结论、跨设备性能或无内存泄漏证明。
+- 冷启动样本与内存单点基线来自单台 API 36 模拟器，不代表启动优化结论、跨设备性能或无内存泄漏证明。
 - 当前只生成 debug APK；正式 Release 仍需要签名配置、物理设备回归与发布流程。
 
 ## 设计与计划
 
-- 产品设计：`docs/superpowers/specs/2026-07-13-yinyuehe-product-design.md`
-- 本地曲库设计：`docs/superpowers/specs/2026-07-13-m2-local-library-design.md`
-- 简历能力对齐计划：`docs/superpowers/plans/2026-07-14-resume-parity.md`
+- [产品设计](docs/superpowers/specs/2026-07-13-yinyuehe-product-design.md)
+- [本地曲库设计](docs/superpowers/specs/2026-07-13-m2-local-library-design.md)
+- [简历能力对齐计划](docs/superpowers/plans/2026-07-14-resume-parity.md)
 
 ## 许可
 
