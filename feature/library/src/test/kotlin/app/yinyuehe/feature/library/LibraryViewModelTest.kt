@@ -1,16 +1,25 @@
 package app.yinyuehe.feature.library
 
+import app.yinyuehe.core.common.analytics.PlaybackEvent
+import app.yinyuehe.core.common.analytics.PlaybackEventName
+import app.yinyuehe.core.common.analytics.PlaybackEventRecorder
+import app.yinyuehe.core.common.model.LibrarySource
 import app.yinyuehe.core.common.model.Track
 import app.yinyuehe.core.common.model.TrackId
-import app.yinyuehe.core.testing.FakePlaybackController
+import app.yinyuehe.core.data.scan.LibraryScanner
+import app.yinyuehe.core.data.scan.ScanResult
+import app.yinyuehe.core.player.PlaybackController
+import app.yinyuehe.core.player.PlaybackConnection
+import app.yinyuehe.core.player.PlaybackState
 import app.yinyuehe.core.testing.FakeTrackRepository
 import app.yinyuehe.core.testing.MainDispatcherRule
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 
@@ -19,89 +28,262 @@ class LibraryViewModelTest {
   @get:Rule val mainDispatcherRule = MainDispatcherRule()
 
   @Test
-  fun repositoryTracks_areExposedInOrder() = runTest {
-    val repository = FakeTrackRepository(listOf(track("one"), track("two")))
-    val viewModel = LibraryViewModel(repository, FakePlaybackController())
-
-    assertEquals(listOf("one", "two"), viewModel.uiState.value.tracks.map { it.id.value })
-  }
-
-  @Test
-  fun selectingTrack_playsWholeQueueAtSelectedIndex() = runTest {
-    val tracks = listOf(track("one"), track("two"))
-    val player = FakePlaybackController()
-    val viewModel = LibraryViewModel(FakeTrackRepository(tracks), player)
-
-    viewModel.onTrackClick(TrackId("two"))
-
-    assertEquals(1, player.playRequests.single().startIndex)
-    assertEquals(tracks, player.playRequests.single().tracks)
-  }
-
-  @Test
-  fun rejectedPlayback_exposesConnectionError() = runTest {
-    val player = FakePlaybackController().apply { playResult = false }
-    val viewModel = LibraryViewModel(FakeTrackRepository(listOf(track("one"))), player)
-
-    viewModel.onTrackClick(TrackId("one"))
-
-    assertEquals(PlaybackError.CONNECTION_FAILED, viewModel.uiState.value.playbackError)
-  }
-
-  @Test
-  fun playbackException_exposesPlaybackError() = runTest {
-    val player =
-      FakePlaybackController().apply {
-        playFailure = IllegalStateException("Media3 rejected the request")
-      }
-    val viewModel = LibraryViewModel(FakeTrackRepository(listOf(track("one"))), player)
-
-    viewModel.onTrackClick(TrackId("one"))
-
-    assertEquals(PlaybackError.PLAYBACK_FAILED, viewModel.uiState.value.playbackError)
-  }
-
-  @Test
-  fun successfulRetry_clearsPlaybackError() = runTest {
-    val player = FakePlaybackController().apply { playResult = false }
-    val viewModel = LibraryViewModel(FakeTrackRepository(listOf(track("one"))), player)
-    viewModel.onTrackClick(TrackId("one"))
-    assertEquals(PlaybackError.CONNECTION_FAILED, viewModel.uiState.value.playbackError)
-
-    player.playResult = true
-    viewModel.onTrackClick(TrackId("one"))
-
-    assertNull(viewModel.uiState.value.playbackError)
-  }
-
-  @Test
-  fun newerSuccess_isNotOverwrittenByCancelledOlderFailure() = runTest {
-    val firstResult = CompletableDeferred<Boolean>()
-    val player = FakePlaybackController()
-    player.playHandler = { request ->
-      if (request.startIndex == 0) {
-        try {
-          firstResult.await()
-        } catch (_: CancellationException) {
-          false
-        }
-      } else {
-        true
-      }
-    }
-    val viewModel =
-      LibraryViewModel(
-        FakeTrackRepository(listOf(track("one"), track("two"))),
-        player,
+  fun repositoryAndControllerFlows_areCombinedIntoOneImmutableState() = runTest {
+    val one = track("one")
+    val two = track("two")
+    val repository = FakeTrackRepository(listOf(one, two))
+    repository.setFavorite(one.id, true)
+    repository.recordRecent(two.id)
+    val controller = RecordingPlaybackController()
+    val playback =
+      PlaybackState(
+        connection = PlaybackConnection.CONNECTED,
+        currentTrackId = two.id,
+        currentIndex = 1,
+        queueTrackIds = listOf(one.id, two.id),
       )
+    controller.emit(playback)
 
-    viewModel.onTrackClick(TrackId("one"))
-    viewModel.onTrackClick(TrackId("two"))
+    val viewModel = viewModel(repository, controller)
+    advanceUntilIdle()
 
-    assertEquals(2, player.playRequests.size)
-    assertNull(viewModel.uiState.value.playbackError)
+    assertEquals(LibrarySource.DEMO, viewModel.uiState.value.librarySource)
+    assertEquals(listOf(one, two), viewModel.uiState.value.libraryTracks)
+    assertEquals(setOf(one.id), viewModel.uiState.value.favoriteTrackIds)
+    assertEquals(listOf(one), viewModel.uiState.value.favoriteTracks)
+    assertEquals(listOf(two), viewModel.uiState.value.recentTracks)
+    assertSame(playback, viewModel.uiState.value.playback)
   }
+
+  @Test
+  fun controllerCallback_replacesPlaybackSnapshotWithoutUiOwnedPlaybackState() = runTest {
+    val controller = RecordingPlaybackController()
+    val viewModel = viewModel(FakeTrackRepository(listOf(track("one"))), controller)
+    val callbackState =
+      PlaybackState(connection = PlaybackConnection.CONNECTED, isPlaying = true, positionMs = 4_200)
+
+    controller.emit(callbackState)
+    advanceUntilIdle()
+
+    assertSame(callbackState, viewModel.uiState.value.playback)
+  }
+
+  @Test
+  fun playAll_startsAtZeroWithoutShuffle() = runTest {
+    val tracks = listOf(track("one"), track("two"))
+    val controller = RecordingPlaybackController()
+    val viewModel = viewModel(FakeTrackRepository(tracks), controller)
+
+    viewModel.onAction(MusicBoxAction.PlayAll(TrackCollection.LIBRARY))
+    advanceUntilIdle()
+
+    assertEquals(RecordingPlaybackController.PlayRequest(tracks, 0, false), controller.playRequests.single())
+  }
+
+  @Test
+  fun playRandom_startsAtZeroWithShuffleEnabled() = runTest {
+    val tracks = listOf(track("one"), track("two"))
+    val controller = RecordingPlaybackController()
+    val viewModel = viewModel(FakeTrackRepository(tracks), controller)
+
+    viewModel.onAction(MusicBoxAction.PlayRandom(TrackCollection.LIBRARY))
+    advanceUntilIdle()
+
+    assertEquals(RecordingPlaybackController.PlayRequest(tracks, 0, true), controller.playRequests.single())
+  }
+
+  @Test
+  fun acceptedTrackSelection_opensPlayerAtSelectedIndex() = runTest {
+    val tracks = listOf(track("one"), track("two"))
+    val controller = RecordingPlaybackController()
+    val viewModel = viewModel(FakeTrackRepository(tracks), controller)
+
+    viewModel.onAction(MusicBoxAction.PlayTrack(TrackId("two"), TrackCollection.LIBRARY))
+    advanceUntilIdle()
+
+    assertEquals(1, controller.playRequests.single().startIndex)
+    assertEquals(MusicBoxDestination.PLAYER, viewModel.uiState.value.activeDestination)
+  }
+
+  @Test
+  fun rejectedTrackSelection_keepsDestinationAndExposesStableErrorCode() = runTest {
+    val controller = RecordingPlaybackController().apply { playResult = false }
+    val viewModel = viewModel(FakeTrackRepository(listOf(track("one"))), controller)
+
+    viewModel.onAction(MusicBoxAction.PlayTrack(TrackId("one"), TrackCollection.LIBRARY))
+    advanceUntilIdle()
+
+    assertEquals(MusicBoxDestination.HOME, viewModel.uiState.value.activeDestination)
+    assertEquals(LibraryErrorCode.CONNECTION_FAILED, viewModel.uiState.value.errorCode)
+  }
+
+  @Test
+  fun favoriteToggle_persistsAndRecordsFavoriteChanged() = runTest {
+    val one = track("one")
+    val repository = FakeTrackRepository(listOf(one))
+    val recorder = RecordingPlaybackEventRecorder()
+    val viewModel = viewModel(repository, recorder = recorder)
+
+    viewModel.onAction(MusicBoxAction.ToggleFavorite(one.id))
+    advanceUntilIdle()
+
+    assertEquals(setOf(one.id), viewModel.uiState.value.favoriteTrackIds)
+    assertEquals(PlaybackEventName.FAVORITE_CHANGED, recorder.events.single().name)
+    assertEquals(one.id, recorder.events.single().trackId)
+  }
+
+  @Test
+  fun favoriteAnalyticsFailure_doesNotTurnSuccessfulPersistenceIntoBusinessFailure() = runTest {
+    val one = track("one")
+    val repository = FakeTrackRepository(listOf(one))
+    val recorder = RecordingPlaybackEventRecorder().apply { failure = IllegalStateException("disk") }
+    val viewModel = viewModel(repository, recorder = recorder)
+
+    viewModel.onAction(MusicBoxAction.ToggleFavorite(one.id))
+    advanceUntilIdle()
+
+    assertEquals(setOf(one.id), viewModel.uiState.value.favoriteTrackIds)
+    assertEquals(null, viewModel.uiState.value.errorCode)
+  }
+
+  @Test
+  fun transportSeekAndQueueActions_delegateExactlyOnce() = runTest {
+    val one = track("one")
+    val controller = RecordingPlaybackController()
+    controller.emit(
+      PlaybackState(
+        connection = PlaybackConnection.CONNECTED,
+        queueTrackIds = listOf(one.id),
+        canSeek = true,
+        canPrevious = true,
+        canNext = true,
+      )
+    )
+    val viewModel = viewModel(FakeTrackRepository(listOf(one)), controller)
+
+    viewModel.onAction(MusicBoxAction.TogglePlayPause)
+    viewModel.onAction(MusicBoxAction.Previous)
+    viewModel.onAction(MusicBoxAction.Next)
+    viewModel.onAction(MusicBoxAction.SeekTo(8_000))
+    viewModel.onAction(MusicBoxAction.AddToQueue(one.id))
+    viewModel.onAction(MusicBoxAction.RemoveQueueItem(0))
+    viewModel.onAction(MusicBoxAction.JumpToQueueItem(0))
+
+    assertEquals(1, controller.toggleCount)
+    assertEquals(1, controller.previousCount)
+    assertEquals(1, controller.nextCount)
+    assertEquals(listOf(8_000L), controller.seekPositions)
+    assertEquals(listOf(one), controller.queuedTracks)
+    assertEquals(listOf(0), controller.removedQueueIndices)
+    assertEquals(listOf(0), controller.skippedQueueIndices)
+  }
+
+  @Test
+  fun permissionGrant_triggersScanButDenialKeepsDemoLibrary() = runTest {
+    val demos = listOf(track("one"), track("two"))
+    val scanner = RecordingLibraryScanner()
+    val viewModel = viewModel(FakeTrackRepository(demos), scanner = scanner)
+
+    viewModel.onAction(MusicBoxAction.RequestAudioPermission)
+    assertTrue(viewModel.uiState.value.permissionRequestPending)
+    viewModel.onAction(MusicBoxAction.AudioPermissionResult(false))
+    advanceUntilIdle()
+
+    assertEquals(0, scanner.scanCount)
+    assertFalse(viewModel.uiState.value.hasAudioPermission)
+    assertEquals(demos, viewModel.uiState.value.libraryTracks)
+    assertEquals(LibraryErrorCode.PERMISSION_REQUIRED, viewModel.uiState.value.errorCode)
+
+    viewModel.onAction(MusicBoxAction.AudioPermissionResult(true))
+    advanceUntilIdle()
+
+    assertEquals(1, scanner.scanCount)
+    assertTrue(viewModel.uiState.value.hasAudioPermission)
+    assertFalse(viewModel.uiState.value.isScanning)
+  }
+
+  private fun viewModel(
+    repository: FakeTrackRepository,
+    controller: RecordingPlaybackController = RecordingPlaybackController(),
+    scanner: RecordingLibraryScanner = RecordingLibraryScanner(),
+    recorder: RecordingPlaybackEventRecorder = RecordingPlaybackEventRecorder(),
+  ) = LibraryViewModel(repository, controller, scanner, recorder)
 
   private fun track(id: String) =
     Track(TrackId(id), id, null, null, 1_000, null, "android.resource://app.yinyuehe/$id", true)
+}
+
+private class RecordingLibraryScanner : LibraryScanner {
+  var scanCount = 0
+  var result: Result<ScanResult> = Result.success(ScanResult(0, 0, 0))
+
+  override suspend fun scan(): Result<ScanResult> {
+    scanCount += 1
+    return result
+  }
+}
+
+private class RecordingPlaybackEventRecorder : PlaybackEventRecorder {
+  val events = mutableListOf<PlaybackEvent>()
+  var failure: Throwable? = null
+
+  override suspend fun record(event: PlaybackEvent) {
+    failure?.let { throw it }
+    events += event
+  }
+}
+
+private class RecordingPlaybackController : PlaybackController {
+  data class PlayRequest(val tracks: List<Track>, val startIndex: Int, val shuffle: Boolean)
+
+  private val mutableState = kotlinx.coroutines.flow.MutableStateFlow(PlaybackState())
+  override val state = mutableState
+  val playRequests = mutableListOf<PlayRequest>()
+  val seekPositions = mutableListOf<Long>()
+  val queuedTracks = mutableListOf<Track>()
+  val removedQueueIndices = mutableListOf<Int>()
+  val skippedQueueIndices = mutableListOf<Int>()
+  var toggleCount = 0
+  var previousCount = 0
+  var nextCount = 0
+  var playResult = true
+
+  fun emit(value: PlaybackState) {
+    mutableState.value = value
+  }
+
+  override suspend fun play(tracks: List<Track>, startIndex: Int, shuffle: Boolean): Boolean {
+    playRequests += PlayRequest(tracks, startIndex, shuffle)
+    return playResult
+  }
+
+  override fun togglePlayPause() {
+    toggleCount += 1
+  }
+
+  override fun seekTo(positionMs: Long) {
+    seekPositions += positionMs
+  }
+
+  override fun seekToPrevious() {
+    previousCount += 1
+  }
+
+  override fun seekToNext() {
+    nextCount += 1
+  }
+
+  override fun addToQueue(track: Track) {
+    queuedTracks += track
+  }
+
+  override fun removeQueueItem(index: Int) {
+    removedQueueIndices += index
+  }
+
+  override fun skipToQueueItem(index: Int) {
+    skippedQueueIndices += index
+  }
+
+  override fun setShuffleEnabled(enabled: Boolean) = Unit
 }
