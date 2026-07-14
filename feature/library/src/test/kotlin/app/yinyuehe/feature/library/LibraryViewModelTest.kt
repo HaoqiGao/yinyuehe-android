@@ -12,6 +12,7 @@ import app.yinyuehe.core.data.scan.ScanResult
 import app.yinyuehe.core.player.PlaybackController
 import app.yinyuehe.core.player.PlaybackConnection
 import app.yinyuehe.core.player.PlaybackState
+import app.yinyuehe.core.player.PlaybackToggleAction
 import app.yinyuehe.core.testing.FakeTrackRepository
 import app.yinyuehe.core.testing.MainDispatcherRule
 import kotlinx.coroutines.CancellationException
@@ -66,7 +67,13 @@ class LibraryViewModelTest {
     val controller = RecordingPlaybackController()
     val viewModel = viewModel(FakeTrackRepository(listOf(track("one"))), controller)
     val callbackState =
-      PlaybackState(connection = PlaybackConnection.CONNECTED, isPlaying = true, positionMs = 4_200)
+      PlaybackState(
+        connection = PlaybackConnection.CONNECTED,
+        isPlaying = true,
+        toggleAction = PlaybackToggleAction.PAUSE,
+        canTogglePlayPause = true,
+        positionMs = 4_200,
+      )
 
     controller.emit(callbackState)
     advanceUntilIdle()
@@ -160,6 +167,7 @@ class LibraryViewModelTest {
       PlaybackState(
         connection = PlaybackConnection.CONNECTED,
         queueTrackIds = listOf(one.id),
+        canTogglePlayPause = true,
         canSeek = true,
         canPrevious = true,
         canNext = true,

@@ -15,6 +15,154 @@ import org.junit.Test
 @OptIn(ExperimentalCoroutinesApi::class)
 class PlaybackRequestAnalyticsTest {
   @Test
+  fun unrelatedPlayerEvent_doesNotConsumePendingLatencyBeforeMatchingStart() = runTest {
+    var elapsedMs = 100L
+    val recorder = RecordingPlaybackEventRecorder()
+    val analytics =
+      PlaybackRequestAnalytics(
+        recorder = recorder,
+        scope = this,
+        timingTracker = PlaybackTimingTracker { elapsedMs },
+        epochTimeMs = { 1_000L },
+      )
+    val router = PlaybackAnalyticsEventRouter(analytics)
+    val requested = TrackId("local:requested")
+
+    analytics.onPlayRequested(requested)
+    router.onEvents(
+      isPlayingChanged = false,
+      isPlaying = true,
+      trackId = TrackId("local:unrelated"),
+      playerErrorChanged = false,
+      hasPlayerError = false,
+    )
+    elapsedMs = 250L
+    router.onEvents(
+      isPlayingChanged = true,
+      isPlaying = true,
+      trackId = requested,
+      playerErrorChanged = false,
+      hasPlayerError = false,
+    )
+    advanceUntilIdle()
+
+    assertEquals(
+      listOf(PlaybackEventName.PLAY_REQUESTED, PlaybackEventName.PLAY_START_LATENCY),
+      recorder.events.map(PlaybackEvent::name),
+    )
+    assertEquals(150L, recorder.events.last().durationMs)
+  }
+
+  @Test
+  fun actualStartOfAnotherTrack_invalidatesPendingLatency() = runTest {
+    val recorder = RecordingPlaybackEventRecorder()
+    val analytics =
+      PlaybackRequestAnalytics(
+        recorder = recorder,
+        scope = this,
+        timingTracker = PlaybackTimingTracker { 100L },
+        epochTimeMs = { 1_000L },
+      )
+    val router = PlaybackAnalyticsEventRouter(analytics)
+    val requested = TrackId("local:requested")
+
+    analytics.onPlayRequested(requested)
+    router.onEvents(
+      isPlayingChanged = true,
+      isPlaying = true,
+      trackId = TrackId("local:other"),
+      playerErrorChanged = false,
+      hasPlayerError = false,
+    )
+    router.onEvents(
+      isPlayingChanged = true,
+      isPlaying = true,
+      trackId = requested,
+      playerErrorChanged = false,
+      hasPlayerError = false,
+    )
+    advanceUntilIdle()
+
+    assertEquals(listOf(PlaybackEventName.PLAY_REQUESTED), recorder.events.map(PlaybackEvent::name))
+  }
+
+  @Test
+  fun clearingAPriorPlayerError_doesNotClearANewerPendingRequest() = runTest {
+    val recorder = RecordingPlaybackEventRecorder()
+    val analytics =
+      PlaybackRequestAnalytics(
+        recorder = recorder,
+        scope = this,
+        timingTracker = PlaybackTimingTracker { 100L },
+        epochTimeMs = { 1_000L },
+      )
+    val router = PlaybackAnalyticsEventRouter(analytics)
+    val requested = TrackId("local:requested")
+
+    router.onEvents(
+      isPlayingChanged = false,
+      isPlaying = false,
+      trackId = null,
+      playerErrorChanged = true,
+      hasPlayerError = true,
+    )
+    analytics.onPlayRequested(requested)
+    router.onEvents(
+      isPlayingChanged = false,
+      isPlaying = false,
+      trackId = requested,
+      playerErrorChanged = true,
+      hasPlayerError = false,
+    )
+    router.onEvents(
+      isPlayingChanged = true,
+      isPlaying = true,
+      trackId = requested,
+      playerErrorChanged = false,
+      hasPlayerError = false,
+    )
+    advanceUntilIdle()
+
+    assertEquals(
+      listOf(PlaybackEventName.PLAY_REQUESTED, PlaybackEventName.PLAY_START_LATENCY),
+      recorder.events.map(PlaybackEvent::name),
+    )
+  }
+
+  @Test
+  fun nonNullPlayerError_clearsPendingLatency() = runTest {
+    val recorder = RecordingPlaybackEventRecorder()
+    val analytics =
+      PlaybackRequestAnalytics(
+        recorder = recorder,
+        scope = this,
+        timingTracker = PlaybackTimingTracker { 100L },
+        epochTimeMs = { 1_000L },
+      )
+    val router = PlaybackAnalyticsEventRouter(analytics)
+    val requested = TrackId("local:requested")
+
+    analytics.onPlayRequested(requested)
+    router.onEvents(
+      isPlayingChanged = false,
+      isPlaying = false,
+      trackId = requested,
+      playerErrorChanged = true,
+      hasPlayerError = true,
+    )
+    router.onEvents(
+      isPlayingChanged = true,
+      isPlaying = true,
+      trackId = requested,
+      playerErrorChanged = false,
+      hasPlayerError = false,
+    )
+    advanceUntilIdle()
+
+    assertEquals(listOf(PlaybackEventName.PLAY_REQUESTED), recorder.events.map(PlaybackEvent::name))
+  }
+
+  @Test
   fun requestedTrack_recordsRequestThenOneLatencyFromItsFirstPlayingCallback() = runTest {
     var elapsedMs = 100L
     var epochMs = 1_000L

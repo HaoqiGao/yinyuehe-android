@@ -3,9 +3,10 @@ package app.yinyuehe.feature.library
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.test.assertIsNotEnabled
-import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
@@ -18,6 +19,7 @@ import app.yinyuehe.core.common.model.TrackId
 import app.yinyuehe.core.designsystem.theme.YinYueHeTheme
 import app.yinyuehe.core.player.PlaybackConnection
 import app.yinyuehe.core.player.PlaybackState
+import app.yinyuehe.core.player.PlaybackToggleAction
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -25,6 +27,37 @@ import org.junit.Test
 
 class LibraryScreenTest {
   @get:Rule val composeRule = createComposeRule()
+
+  @Test
+  fun playerToggle_usesDerivedActionAndAvailability() {
+    var state by
+      mutableStateOf(
+        screenState().copy(
+          activeDestination = MusicBoxDestination.PLAYER,
+          playback =
+            PlaybackState(
+              toggleAction = PlaybackToggleAction.PAUSE,
+              canTogglePlayPause = true,
+            ),
+        )
+      )
+    composeRule.setContent {
+      YinYueHeTheme { LibraryScreen(state, onAction = {}) }
+    }
+
+    composeRule.onNodeWithContentDescription("暂停").assertIsEnabled()
+
+    state =
+      state.copy(
+        playback =
+          PlaybackState(
+            toggleAction = PlaybackToggleAction.PLAY,
+            canTogglePlayPause = false,
+          )
+      )
+
+    composeRule.onNodeWithContentDescription("播放").assertIsNotEnabled()
+  }
 
   @Test
   fun bottomNavigation_reachesExactlyHomePlayerAndPlaylists() {
@@ -90,6 +123,7 @@ class LibraryScreenTest {
                 currentTrackId = one.id,
                 queueTrackIds = listOf(one.id),
                 durationMs = 1_000,
+                canTogglePlayPause = true,
                 canSeek = true,
                 canPrevious = true,
                 canNext = true,

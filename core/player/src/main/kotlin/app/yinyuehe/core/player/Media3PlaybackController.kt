@@ -48,6 +48,7 @@ class Media3PlaybackController @Inject constructor(
         Log.w(TAG, "Playback request analytics recording failed", error)
       },
     )
+  private val analyticsEventRouter = PlaybackAnalyticsEventRouter(requestAnalytics)
   private var controller: MediaController? = null
   private var positionTickerJob: Job? = null
 
@@ -56,13 +57,13 @@ class Media3PlaybackController @Inject constructor(
       override fun onEvents(player: Player, events: Player.Events) {
         applicationScope.launch {
           if (controller !== player) return@launch
-          if (events.contains(Player.EVENT_PLAYER_ERROR)) {
-            requestAnalytics.onPlaybackFailure()
-          }
           publishSnapshot(player)
-          requestAnalytics.onPlayerCallback(
+          analyticsEventRouter.onEvents(
+            isPlayingChanged = events.contains(Player.EVENT_IS_PLAYING_CHANGED),
             isPlaying = player.isPlaying,
             trackId = player.currentMediaItem?.mediaId?.toTrackIdOrNull(),
+            playerErrorChanged = events.contains(Player.EVENT_PLAYER_ERROR),
+            hasPlayerError = player.playerError != null,
           )
         }
       }
@@ -244,10 +245,14 @@ private fun Player.snapshot(connection: PlaybackConnection): PlayerSnapshot {
     currentMediaId = currentMediaItem?.mediaId,
     currentIndex = index,
     isPlaying = isPlaying,
+    playWhenReady = playWhenReady,
+    isEnded = playbackState == Player.STATE_ENDED,
     positionMs = currentPosition,
     durationMs = duration.takeUnless { it == C.TIME_UNSET } ?: 0,
     queueMediaIds = queueMediaIds,
     shuffleEnabled = shuffleModeEnabled,
+    canPlayPause = isCommandAvailable(Player.COMMAND_PLAY_PAUSE),
+    canSeekToDefaultPosition = isCommandAvailable(Player.COMMAND_SEEK_TO_DEFAULT_POSITION),
     canSeek = isCommandAvailable(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM),
     canPrevious =
       isCommandAvailable(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM) && hasPreviousMediaItem(),

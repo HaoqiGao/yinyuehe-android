@@ -3,16 +3,18 @@ package app.yinyuehe
 import app.yinyuehe.core.common.analytics.PlaybackEvent
 import app.yinyuehe.core.common.analytics.PlaybackEventName
 import app.yinyuehe.core.common.analytics.PlaybackEventRecorder
+import javax.inject.Singleton
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ProcessFirstFrameAnalyticsTest {
   @Test
-  fun configurationRecreation_recordsOnlyTheFirstActualFrameInTheProcess() = runTest {
+  fun sameScopedInstance_recordsOnlyItsFirstFrameCallback() = runTest {
     val recorder = FirstFrameRecorder()
     val analytics = ProcessFirstFrameAnalytics(recorder, this)
 
@@ -27,7 +29,7 @@ class ProcessFirstFrameAnalyticsTest {
   }
 
   @Test
-  fun processRestart_withANewScopedInstance_canRecordAgain() = runTest {
+  fun newScopedInstance_canRecordAgain() = runTest {
     val recorder = FirstFrameRecorder()
 
     ProcessFirstFrameAnalytics(recorder, this)
@@ -37,6 +39,11 @@ class ProcessFirstFrameAnalyticsTest {
     advanceUntilIdle()
 
     assertEquals(listOf(100L, 200L), recorder.events.map(PlaybackEvent::durationMs))
+  }
+
+  @Test
+  fun analytics_isDeclaredAsSingletonForHiltProcessScope() {
+    assertTrue(ProcessFirstFrameAnalytics::class.java.isAnnotationPresent(Singleton::class.java))
   }
 
   @Test

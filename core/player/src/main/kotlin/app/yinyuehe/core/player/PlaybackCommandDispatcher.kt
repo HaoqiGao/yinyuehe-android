@@ -16,14 +16,21 @@ internal class PlaybackCommandDispatcher(private val player: Player) {
   }
 
   fun togglePlayPause() {
-    if (!player.isCommandAvailable(Player.COMMAND_PLAY_PAUSE)) return
-    if (player.playbackState == Player.STATE_ENDED) {
-      if (!player.isCommandAvailable(Player.COMMAND_SEEK_TO_DEFAULT_POSITION)) return
-      player.seekToDefaultPosition()
-      player.play()
-      return
+    val isEnded = player.playbackState == Player.STATE_ENDED
+    val decision =
+      playbackToggleDecision(
+        playWhenReady = player.playWhenReady,
+        isEnded = isEnded,
+        canPlayPause = player.isCommandAvailable(Player.COMMAND_PLAY_PAUSE),
+        canSeekToDefaultPosition =
+          player.isCommandAvailable(Player.COMMAND_SEEK_TO_DEFAULT_POSITION),
+      )
+    if (!decision.canDispatch) return
+    if (isEnded) player.seekToDefaultPosition()
+    when (decision.action) {
+      PlaybackToggleAction.PLAY -> player.play()
+      PlaybackToggleAction.PAUSE -> player.pause()
     }
-    if (shouldPauseForToggle(player.playWhenReady)) player.pause() else player.play()
   }
 
   fun seekTo(positionMs: Long) {

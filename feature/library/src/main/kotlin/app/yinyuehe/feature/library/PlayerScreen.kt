@@ -28,6 +28,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import app.yinyuehe.core.common.model.TrackId
+import app.yinyuehe.core.player.PlaybackToggleAction
 
 @Composable
 internal fun PlayerScreen(
@@ -36,6 +37,11 @@ internal fun PlayerScreen(
   onAction: (MusicBoxAction) -> Unit,
 ) {
   val playback = state.playback
+  val toggleLabel =
+    when (playback.toggleAction) {
+      PlaybackToggleAction.PLAY -> "播放"
+      PlaybackToggleAction.PAUSE -> "暂停"
+    }
   val duration = playback.durationMs.coerceAtLeast(0)
   val sliderMaximum = duration.coerceAtLeast(1).toFloat()
   val queueEntries = remember(playback.queueTrackIds) {
@@ -87,11 +93,13 @@ internal fun PlayerScreen(
       }
       Button(
         onClick = { onAction(MusicBoxAction.TogglePlayPause) },
+        enabled = playback.canTogglePlayPause,
         modifier =
           Modifier.sizeIn(minWidth = MinimumTouchTarget, minHeight = MinimumTouchTarget)
+            .semantics { contentDescription = toggleLabel }
             .testTag("player-toggle"),
       ) {
-        Text(if (playback.isPlaying) "暂停" else "播放")
+        Text(toggleLabel)
       }
       Button(
         onClick = { onAction(MusicBoxAction.Next) },
