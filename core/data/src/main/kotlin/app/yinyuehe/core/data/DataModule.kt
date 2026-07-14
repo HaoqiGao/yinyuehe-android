@@ -1,5 +1,9 @@
 package app.yinyuehe.core.data
 
+import app.yinyuehe.core.common.analytics.PlaybackEventRecorder
+import app.yinyuehe.core.common.analytics.PlaybackHistoryRecorder
+import app.yinyuehe.core.data.analytics.RoomPlaybackEventRecorder
+import app.yinyuehe.core.data.analytics.RoomPlaybackHistoryRecorder
 import app.yinyuehe.core.data.repository.RoomTrackRepository
 import app.yinyuehe.core.data.local.mediastore.AndroidMediaStoreGateway
 import app.yinyuehe.core.data.local.mediastore.MediaStoreGateway
@@ -17,6 +21,16 @@ abstract class DataModule {
   @Binds
   @Singleton
   abstract fun bindTrackRepository(repository: RoomTrackRepository): TrackRepository
+
+  @Binds
+  @Singleton
+  abstract fun bindPlaybackEventRecorder(recorder: RoomPlaybackEventRecorder): PlaybackEventRecorder
+
+  @Binds
+  @Singleton
+  abstract fun bindPlaybackHistoryRecorder(
+    recorder: RoomPlaybackHistoryRecorder
+  ): PlaybackHistoryRecorder
 
   @Binds
   @Singleton

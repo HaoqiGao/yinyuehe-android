@@ -3,6 +3,7 @@ package app.yinyuehe.core.data.local.db
 import android.content.Context
 import androidx.room.Room
 import app.yinyuehe.core.data.local.db.dao.FavoriteDao
+import app.yinyuehe.core.data.local.db.dao.PlaybackEventDao
 import app.yinyuehe.core.data.local.db.dao.RecentPlayDao
 import app.yinyuehe.core.data.local.db.dao.ScanCheckpointDao
 import app.yinyuehe.core.data.local.db.dao.TrackDao
@@ -19,13 +20,19 @@ object DatabaseModule {
   @Provides
   @Singleton
   fun provideDatabase(@ApplicationContext context: Context): YinYueHeDatabase =
-    Room.databaseBuilder(context, YinYueHeDatabase::class.java, "yinyuehe.db").build()
+    Room.databaseBuilder(context, YinYueHeDatabase::class.java, "yinyuehe.db")
+      .addMigrations(MIGRATION_1_2)
+      .build()
 
   @Provides
   fun provideTrackDao(database: YinYueHeDatabase): TrackDao = database.trackDao()
 
   @Provides
   fun provideFavoriteDao(database: YinYueHeDatabase): FavoriteDao = database.favoriteDao()
+
+  @Provides
+  fun providePlaybackEventDao(database: YinYueHeDatabase): PlaybackEventDao =
+    database.playbackEventDao()
 
   @Provides
   fun provideRecentPlayDao(database: YinYueHeDatabase): RecentPlayDao = database.recentPlayDao()

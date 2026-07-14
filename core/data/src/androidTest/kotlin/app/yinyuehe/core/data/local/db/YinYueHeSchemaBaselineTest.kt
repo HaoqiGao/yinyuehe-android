@@ -28,6 +28,7 @@ class YinYueHeSchemaBaselineTest {
         YinYueHeDatabase::class.java,
         databaseName,
       )
+        .addMigrations(MIGRATION_1_2)
         .build()
     try {
       database.openHelper.writableDatabase
