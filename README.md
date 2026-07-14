@@ -63,4 +63,4 @@ CI 在 pull request 和 `main` push 上使用 Temurin 17、隔离的 Android SDK
 
 ## 许可
 
-代码和内置演示音频按 Apache License 2.0 提供。演示音频来源与校验和见 `docs/assets/demo-audio.md`。
+代码和内置演示音频按 Apache License 2.0 提供。详见[演示音频来源与校验和](docs/assets/demo-audio.md)。
