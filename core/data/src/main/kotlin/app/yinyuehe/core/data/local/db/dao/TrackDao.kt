@@ -40,4 +40,15 @@ interface TrackDao {
     """
   )
   suspend fun markUnavailableNotSeenInScan(volumeName: String, scanToken: String): Int
+
+  @Query(
+    """
+    UPDATE tracks
+    SET isAvailable = 0
+    WHERE volumeName = :volumeName
+      AND volumeName != :excludedVolumeName
+      AND isAvailable = 1
+    """
+  )
+  suspend fun markVolumeUnavailable(volumeName: String, excludedVolumeName: String): Int
 }

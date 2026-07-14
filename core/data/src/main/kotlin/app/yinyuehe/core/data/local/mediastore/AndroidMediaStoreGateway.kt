@@ -33,9 +33,7 @@ internal class AndroidMediaStoreGateway @Inject constructor(
       val projection =
         buildList {
           add(MediaStore.Audio.Media._ID)
-          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            add(MediaStore.Audio.Media.DISPLAY_NAME)
-          }
+          add(MediaStore.Audio.Media.DISPLAY_NAME)
           add(MediaStore.Audio.Media.TITLE)
           add(MediaStore.Audio.Media.ARTIST)
           add(MediaStore.Audio.Media.ALBUM)
