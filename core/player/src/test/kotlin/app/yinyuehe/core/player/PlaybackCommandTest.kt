@@ -93,8 +93,27 @@ class PlaybackCommandTest {
   }
 
   @Test
-  fun togglePlayPause_usesPlayWhenReadySoBufferingPlaybackCanBePaused() {
-    val playing = RecordingPlayer(mediaItemCount = 1, playWhenReady = true)
+  fun togglePlayPause_restartsEndedPlaybackInOneAction() {
+    val ended =
+      RecordingPlayer(
+        mediaItemCount = 1,
+        playWhenReady = true,
+        playbackState = Player.STATE_ENDED,
+      )
+
+    PlaybackCommandDispatcher(ended.instance).togglePlayPause()
+
+    assertEquals(listOf("seekToDefaultPosition", "play"), ended.calls.map(Call::name))
+  }
+
+  @Test
+  fun togglePlayPause_pausesPlaybackThatIsStillBuffering() {
+    val playing =
+      RecordingPlayer(
+        mediaItemCount = 1,
+        playWhenReady = true,
+        playbackState = Player.STATE_BUFFERING,
+      )
     val paused = RecordingPlayer(mediaItemCount = 1, playWhenReady = false)
 
     PlaybackCommandDispatcher(playing.instance).togglePlayPause()
@@ -102,6 +121,21 @@ class PlaybackCommandTest {
 
     assertEquals("pause", playing.calls.single().name)
     assertEquals("play", paused.calls.single().name)
+  }
+
+  @Test
+  fun togglePlayPause_doesNotPartiallyRestartEndedPlaybackWhenSeekIsUnavailable() {
+    val ended =
+      RecordingPlayer(
+        mediaItemCount = 1,
+        playWhenReady = true,
+        playbackState = Player.STATE_ENDED,
+        availableCommands = setOf(Player.COMMAND_PLAY_PAUSE),
+      )
+
+    PlaybackCommandDispatcher(ended.instance).togglePlayPause()
+
+    assertTrue(ended.calls.isEmpty())
   }
 
   @Test
@@ -141,10 +175,12 @@ private data class Call(val name: String, val arguments: List<Any?>)
 private class RecordingPlayer(
   private val mediaItemCount: Int,
   private val playWhenReady: Boolean = false,
+  private val playbackState: Int = Player.STATE_READY,
   private val availableCommands: Set<Int> =
     setOf(
       Player.COMMAND_PLAY_PAUSE,
       Player.COMMAND_PREPARE,
+      Player.COMMAND_SEEK_TO_DEFAULT_POSITION,
       Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM,
       Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM,
       Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
@@ -160,6 +196,7 @@ private class RecordingPlayer(
         when (method.name) {
           "getMediaItemCount" -> mediaItemCount
           "getPlayWhenReady" -> playWhenReady
+          "getPlaybackState" -> playbackState
           "isCommandAvailable" -> args?.single() in availableCommands
           "hashCode" -> System.identityHashCode(this)
           "equals" -> false

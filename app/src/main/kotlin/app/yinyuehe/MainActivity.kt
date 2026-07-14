@@ -13,18 +13,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
-import androidx.lifecycle.lifecycleScope
-import app.yinyuehe.core.common.analytics.PlaybackEvent
-import app.yinyuehe.core.common.analytics.PlaybackEventName
-import app.yinyuehe.core.common.analytics.PlaybackEventRecorder
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.launch
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
-  @Inject lateinit var playbackEventRecorder: PlaybackEventRecorder
+  @Inject internal lateinit var firstFrameAnalytics: ProcessFirstFrameAnalytics
 
   private val activityStartElapsedMs = SystemClock.elapsedRealtime()
   private var permissionState by mutableStateOf(AudioPermissionState())
@@ -70,21 +64,7 @@ class MainActivity : ComponentActivity() {
 
   private fun recordFirstFrame() {
     val durationMs = (SystemClock.elapsedRealtime() - activityStartElapsedMs).coerceAtLeast(0)
-    lifecycleScope.launch {
-      try {
-        playbackEventRecorder.record(
-          PlaybackEvent(
-            name = PlaybackEventName.FIRST_FRAME,
-            occurredAtEpochMs = System.currentTimeMillis(),
-            durationMs = durationMs,
-          )
-        )
-      } catch (cancellation: CancellationException) {
-        throw cancellation
-      } catch (_: Exception) {
-        // Startup analytics is deliberately isolated from the user-visible launch path.
-      }
-    }
+    firstFrameAnalytics.recordOnce(durationMs)
   }
 }
 

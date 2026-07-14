@@ -20,7 +20,7 @@ class PlaybackTimingTrackerTest {
   }
 
   @Test
-  fun anotherTrackPlaying_doesNotConsumeThePendingRequest() {
+  fun anotherTrackStarting_invalidatesThePendingRequest() {
     var nowMs = 1_000L
     val tracker = PlaybackTimingTracker { nowMs }
     val requested = TrackId("local:requested")
@@ -30,7 +30,7 @@ class PlaybackTimingTrackerTest {
     assertNull(tracker.onPlaybackStarted(TrackId("local:other")))
     nowMs = 1_250L
 
-    assertEquals(250L, tracker.onPlaybackStarted(requested))
+    assertNull(tracker.onPlaybackStarted(requested))
   }
 
   @Test
@@ -45,7 +45,6 @@ class PlaybackTimingTrackerTest {
     tracker.onPlayRequested(newer)
     nowMs = 45L
 
-    assertNull(tracker.onPlaybackStarted(older))
     assertEquals(25L, tracker.onPlaybackStarted(newer))
   }
 }

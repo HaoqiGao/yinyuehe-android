@@ -56,6 +56,9 @@ class Media3PlaybackController @Inject constructor(
       override fun onEvents(player: Player, events: Player.Events) {
         applicationScope.launch {
           if (controller !== player) return@launch
+          if (events.contains(Player.EVENT_PLAYER_ERROR)) {
+            requestAnalytics.onPlaybackFailure()
+          }
           publishSnapshot(player)
           requestAnalytics.onPlayerCallback(
             isPlaying = player.isPlaying,
@@ -70,6 +73,7 @@ class Media3PlaybackController @Inject constructor(
       override fun onDisconnected(disconnectedController: MediaController) {
         applicationScope.launch {
           if (controller !== disconnectedController) return@launch
+          requestAnalytics.onPlaybackFailure()
           controller = null
           stopPositionTicker()
           _state.value = PlaybackState(connection = PlaybackConnection.DISCONNECTED)
@@ -105,6 +109,7 @@ class Media3PlaybackController @Inject constructor(
               publishSnapshot(it)
             }
             .onFailure {
+              requestAnalytics.onPlaybackFailure()
               controller = null
               stopPositionTicker()
               _state.value = PlaybackState(connection = PlaybackConnection.DISCONNECTED)
@@ -156,6 +161,7 @@ class Media3PlaybackController @Inject constructor(
 
   private fun handleConnectionFailure(future: ListenableFuture<MediaController>) {
     if (controllerFuture !== future) return
+    requestAnalytics.onPlaybackFailure()
     controller = null
     stopPositionTicker()
     _state.value = PlaybackState(connection = PlaybackConnection.DISCONNECTED)

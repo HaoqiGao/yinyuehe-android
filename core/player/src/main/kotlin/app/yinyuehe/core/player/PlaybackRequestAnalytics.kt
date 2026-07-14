@@ -40,6 +40,10 @@ internal class PlaybackRequestAnalytics(
   }
 
   fun onPlayDispatchRejected() {
+    onPlaybackFailure()
+  }
+
+  fun onPlaybackFailure() {
     timingTracker.clearPendingRequest()
   }
 

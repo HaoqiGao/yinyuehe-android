@@ -32,7 +32,6 @@ class PlaybackRequestAnalyticsTest {
     elapsedMs = 250L
     epochMs = 1_150L
     analytics.onPlayerCallback(isPlaying = false, trackId = requested)
-    analytics.onPlayerCallback(isPlaying = true, trackId = TrackId("local:other"))
     analytics.onPlayerCallback(isPlaying = true, trackId = requested)
     analytics.onPlayerCallback(isPlaying = true, trackId = requested)
     advanceUntilIdle()
@@ -69,9 +68,6 @@ class PlaybackRequestAnalyticsTest {
     elapsedMs = 200L
     analytics.onPlayRequested(newer)
     runCurrent()
-    elapsedMs = 225L
-    analytics.onPlayerCallback(isPlaying = true, trackId = older)
-    runCurrent()
 
     assertEquals(
       listOf(PlaybackEventName.PLAY_REQUESTED, PlaybackEventName.PLAY_REQUESTED),
@@ -101,6 +97,26 @@ class PlaybackRequestAnalyticsTest {
 
     analytics.onPlayRequested(trackId)
     analytics.onPlayDispatchRejected()
+    analytics.onPlayerCallback(isPlaying = true, trackId = trackId)
+    advanceUntilIdle()
+
+    assertEquals(listOf(PlaybackEventName.PLAY_REQUESTED), recorder.events.map { it.name })
+  }
+
+  @Test
+  fun playbackFailure_clearsPendingLatency() = runTest {
+    val recorder = RecordingPlaybackEventRecorder()
+    val analytics =
+      PlaybackRequestAnalytics(
+        recorder = recorder,
+        scope = this,
+        timingTracker = PlaybackTimingTracker { 100L },
+        epochTimeMs = { 1_000L },
+      )
+    val trackId = TrackId("local:failed")
+
+    analytics.onPlayRequested(trackId)
+    analytics.onPlaybackFailure()
     analytics.onPlayerCallback(isPlaying = true, trackId = trackId)
     advanceUntilIdle()
 

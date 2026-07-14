@@ -17,8 +17,9 @@ internal class PlaybackTimingTracker(
   }
 
   fun onPlaybackStarted(trackId: TrackId): Long? {
-    val request = pending?.takeIf { it.trackId == trackId } ?: return null
+    val request = pending ?: return null
     pending = null
+    if (request.trackId != trackId) return null
     return (monotonicTimeMs() - request.requestedAtMs).coerceAtLeast(0)
   }
 
