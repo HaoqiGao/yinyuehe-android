@@ -42,10 +42,12 @@ export ANDROID_SDK_ROOT="$ANDROID_HOME"
 
 Debug APK：`app/build/outputs/apk/debug/app-debug.apk`
 
-2026-07-14 在 API 36 arm64 模拟器完成的证据包括：完整 Gradle 门禁、Room 1→2 真机化迁移测试、10 个 Compose/App 设备测试、真实 MediaStore 授权/撤权流程、后台播放、MediaStyle 通知、系统媒体控制、收藏与重启恢复、冷启动样本、播放内存快照和短时稳定性循环。详情：
+2026-07-14 的验证记录明确区分两个代码快照：`d9b04564` 基线完成真实 MediaStore 授权/撤权、后台播放、MediaStyle 通知、系统媒体控制、收藏与重启恢复、冷启动、内存单点和 5 轮短时稳定性采样；后续硬化后的 `deae6a82` 最终 pre-evidence 快照重新通过完整 Gradle 门禁（51 个 XML 报告文件、280 次 JVM 测试执行、0 失败/错误/跳过）、Room 1→2 迁移 `1/1`、Feature `7/7` 与 App `4/4` 设备测试，并补充自然完播重启和同进程旋转首帧去重回归。基线人工证据没有被表述为在最终快照全部重跑。详情：
 
 - [21 项验收矩阵](verification/acceptance-scenarios.md)
 - [2026-07-14 验证记录](verification/result-2026-07-14.md)
+
+当前 debug APK 为 `14,234,179` bytes，SHA-256 为 `322222be25951a32b954f9db8bcd90fc5d1eb9d0bfe41a1ab1479843b98ea8a4`；它不是签名 Release 产物。
 
 CI 在 pull request 和 `main` push 上使用 Temurin 17、隔离的 Android SDK 36，并执行与本地相同的门禁命令。
 
