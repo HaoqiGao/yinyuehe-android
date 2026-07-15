@@ -23,11 +23,14 @@ internal class PlaybackSnapshotWriter(
   private val coalesceWindowMs: Long = 250,
   private val closeDrainTimeoutMs: Long = 1_000,
   private val onFailure: (Exception) -> Unit = {},
+  private val beforePendingTake: suspend () -> Unit = {},
 ) {
   private data class Pending(
     val snapshot: PlaybackSnapshot,
     val urgency: SnapshotWriteUrgency,
   )
+
+  private enum class CoalescingEvent { WINDOW_ELAPSED, SIGNAL_RECEIVED }
 
   private val writerJob = SupervisorJob()
   private val writerScope = CoroutineScope(writerJob + dispatcher)
@@ -70,6 +73,7 @@ internal class PlaybackSnapshotWriter(
   private suspend fun actorLoop() {
     while (true) {
       signal.receive()
+      beforePendingTake()
       var next = takePending()
       if (next == null) {
         if (isClosingAndEmpty()) return
@@ -87,13 +91,22 @@ internal class PlaybackSnapshotWriter(
     val window = async { delay(coalesceWindowMs) }
     try {
       while (latest.urgency == SnapshotWriteUrgency.COALESCED) {
-        val replacement =
-          select<Pending?> {
-            window.onAwait { null }
-            signal.onReceive { takePending() }
+        when (
+          select<CoalescingEvent> {
+            window.onAwait { CoalescingEvent.WINDOW_ELAPSED }
+            signal.onReceive { CoalescingEvent.SIGNAL_RECEIVED }
           }
-        if (replacement == null) break
-        latest = merge(latest, replacement)
+        ) {
+          CoalescingEvent.WINDOW_ELAPSED -> break
+          CoalescingEvent.SIGNAL_RECEIVED -> {
+            val replacement = takePending()
+            if (replacement == null) {
+              if (isClosingAndEmpty()) break
+              continue
+            }
+            latest = merge(latest, replacement)
+          }
+        }
       }
       latest
     } finally {

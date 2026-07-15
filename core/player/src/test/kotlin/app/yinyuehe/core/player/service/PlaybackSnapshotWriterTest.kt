@@ -42,6 +42,43 @@ class PlaybackSnapshotWriterTest {
   }
 
   @Test
+  fun staleSignalAfterLatestPendingIsTakenDoesNotEndTheOriginalCoalescingWindow() = runTest {
+    val signalReceived = CompletableDeferred<Unit>()
+    val allowPendingTake = CompletableDeferred<Unit>()
+    var pauseBeforeTake = true
+    val store = RecordingStore()
+    val writer =
+      writer(
+        store = store,
+        dispatcher = StandardTestDispatcher(testScheduler),
+        beforePendingTake = {
+          if (pauseBeforeTake) {
+            pauseBeforeTake = false
+            signalReceived.complete(Unit)
+            allowPendingTake.await()
+          }
+        },
+      )
+
+    writer.submit(snapshot("one"), SnapshotWriteUrgency.COALESCED)
+    runCurrent()
+    assertTrue(signalReceived.isCompleted)
+    writer.submit(snapshot("two"), SnapshotWriteUrgency.COALESCED)
+    allowPendingTake.complete(Unit)
+    runCurrent()
+
+    assertTrue(store.writes.isEmpty())
+    advanceTimeBy(249)
+    runCurrent()
+    assertTrue(store.writes.isEmpty())
+    advanceTimeBy(1)
+    runCurrent()
+
+    assertEquals(listOf(snapshot("two")), store.writes)
+    writer.close(null).join()
+  }
+
+  @Test
   fun immediateValueInterruptsAnOpenCoalescingWindow() = runTest {
     val store = RecordingStore()
     val writer = writer(store, StandardTestDispatcher(testScheduler))
@@ -161,6 +198,7 @@ class PlaybackSnapshotWriterTest {
     store: PlaybackSnapshotStore,
     dispatcher: CoroutineDispatcher,
     onFailure: (Exception) -> Unit = {},
+    beforePendingTake: suspend () -> Unit = {},
   ) =
     PlaybackSnapshotWriter(
       snapshotStore = store,
@@ -168,6 +206,7 @@ class PlaybackSnapshotWriterTest {
       coalesceWindowMs = 250,
       closeDrainTimeoutMs = 1_000,
       onFailure = onFailure,
+      beforePendingTake = beforePendingTake,
     )
 }
 
