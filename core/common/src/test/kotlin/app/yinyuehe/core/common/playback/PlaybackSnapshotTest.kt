@@ -39,6 +39,39 @@ class PlaybackSnapshotTest {
   }
 
   @Test
+  fun mutableMediaIds_areDefensivelySnapshottedByConstructor() {
+    val first = TrackId("demo:morning-pulse")
+    val second = TrackId("demo:city-walk")
+    val mutableMediaIds = mutableListOf(first, second)
+    val snapshot = PlaybackSnapshot(mediaIds = mutableMediaIds, currentIndex = 1)
+    val expected = PlaybackSnapshot(mediaIds = listOf(first, second), currentIndex = 1)
+    val initialHashCode = snapshot.hashCode()
+
+    mutableMediaIds.clear()
+
+    assertEquals(listOf(first, second), snapshot.mediaIds)
+    assertEquals(expected, snapshot)
+    assertEquals(initialHashCode, snapshot.hashCode())
+    assertEquals(true, snapshot.currentIndex in snapshot.mediaIds.indices)
+  }
+
+  @Test
+  fun copy_defensivelySnapshotsMutableMediaIds() {
+    val id = TrackId("demo:morning-pulse")
+    val mutableMediaIds = mutableListOf(id)
+    val snapshot = PlaybackSnapshot.empty().copy(mediaIds = mutableMediaIds, currentIndex = 0)
+    val expected = PlaybackSnapshot(mediaIds = listOf(id), currentIndex = 0)
+    val initialHashCode = snapshot.hashCode()
+
+    mutableMediaIds.clear()
+
+    assertEquals(listOf(id), snapshot.mediaIds)
+    assertEquals(expected, snapshot)
+    assertEquals(initialHashCode, snapshot.hashCode())
+    assertEquals(true, snapshot.currentIndex in snapshot.mediaIds.indices)
+  }
+
+  @Test
   fun emptyQueue_rejectsAnyCurrentIndexOtherThanMinusOne() {
     assertThrows(IllegalArgumentException::class.java) {
       PlaybackSnapshot(mediaIds = emptyList(), currentIndex = 0)

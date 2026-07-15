@@ -45,6 +45,62 @@ class PlaybackQueueResolutionTest {
   }
 
   @Test
+  fun mutableItems_areDefensivelySnapshottedByConstructor() {
+    val blockedId = TrackId("local:v1:ZXh0ZXJuYWw:1")
+    val mutableItems =
+      mutableListOf<PlaybackQueueItemResolution>(
+        PlaybackQueueItemResolution.Resolved(0, demoTrack.id, demoTrack),
+        PlaybackQueueItemResolution.TemporarilyBlocked(
+          originalIndex = 1,
+          trackId = blockedId,
+          reason = PlaybackQueueBlockReason.PERMISSION_DENIED,
+        ),
+      )
+    val resolution =
+      PlaybackQueueResolution(
+        items = mutableItems,
+        temporaryBlockReason = PlaybackQueueBlockReason.PERMISSION_DENIED,
+      )
+    val expected =
+      PlaybackQueueResolution(
+        items = mutableItems.toList(),
+        temporaryBlockReason = PlaybackQueueBlockReason.PERMISSION_DENIED,
+      )
+    val initialHashCode = resolution.hashCode()
+
+    mutableItems.clear()
+
+    assertEquals(listOf(0, 1), resolution.items.map { it.originalIndex })
+    assertEquals(expected, resolution)
+    assertEquals(initialHashCode, resolution.hashCode())
+    assertEquals(
+      listOf(PlaybackQueueBlockReason.PERMISSION_DENIED),
+      resolution.items
+        .filterIsInstance<PlaybackQueueItemResolution.TemporarilyBlocked>()
+        .map { it.reason },
+    )
+  }
+
+  @Test
+  fun copy_defensivelySnapshotsMutableItems() {
+    val mutableItems =
+      mutableListOf<PlaybackQueueItemResolution>(
+        PlaybackQueueItemResolution.Resolved(0, demoTrack.id, demoTrack),
+        PlaybackQueueItemResolution.Resolved(1, demoTrack.id, demoTrack),
+      )
+    val resolution = PlaybackQueueResolution(emptyList()).copy(items = mutableItems)
+    val expected = PlaybackQueueResolution(mutableItems.toList())
+    val initialHashCode = resolution.hashCode()
+
+    mutableItems.removeAt(0)
+
+    assertEquals(listOf(0, 1), resolution.items.map { it.originalIndex })
+    assertEquals(expected, resolution)
+    assertEquals(initialHashCode, resolution.hashCode())
+    assertEquals(resolution.items.indices.toList(), resolution.items.map { it.originalIndex })
+  }
+
+  @Test
   fun nonContiguousOriginalIndexes_areRejected() {
     assertThrows(IllegalArgumentException::class.java) {
       PlaybackQueueResolution(
