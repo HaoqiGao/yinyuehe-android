@@ -56,14 +56,28 @@ internal class PlaybackLibrarySessionCallback(
     controller: MediaSession.ControllerInfo,
     playerCommands: Player.Commands,
   ) {
-    val explicitRetry =
-      playerCommands.contains(Player.COMMAND_CHANGE_MEDIA_ITEMS) ||
-        playerCommands.contains(Player.COMMAND_SEEK_TO_MEDIA_ITEM) ||
-        playerCommands.contains(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM) ||
-        playerCommands.contains(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM) ||
-        playerCommands.contains(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM) ||
-        playerCommands.contains(Player.COMMAND_PREPARE) ||
-        (playerCommands.contains(Player.COMMAND_PLAY_PAUSE) && mediaSession.player.playWhenReady)
-    if (explicitRetry) onUserRetry()
+    if (isExplicitPlaybackRetry(playerCommands, mediaSession.player.playWhenReady)) onUserRetry()
   }
 }
+
+internal fun isExplicitPlaybackRetry(
+  playerCommands: Player.Commands,
+  playWhenReady: Boolean,
+): Boolean =
+  EXPLICIT_RETRY_COMMANDS.any(playerCommands::contains) ||
+    (playerCommands.contains(Player.COMMAND_PLAY_PAUSE) && playWhenReady)
+
+private val EXPLICIT_RETRY_COMMANDS =
+  intArrayOf(
+    Player.COMMAND_CHANGE_MEDIA_ITEMS,
+    Player.COMMAND_SEEK_TO_MEDIA_ITEM,
+    Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM,
+    Player.COMMAND_SEEK_TO_DEFAULT_POSITION,
+    Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM,
+    Player.COMMAND_SEEK_TO_PREVIOUS,
+    Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
+    Player.COMMAND_SEEK_TO_NEXT,
+    Player.COMMAND_SEEK_BACK,
+    Player.COMMAND_SEEK_FORWARD,
+    Player.COMMAND_PREPARE,
+  )

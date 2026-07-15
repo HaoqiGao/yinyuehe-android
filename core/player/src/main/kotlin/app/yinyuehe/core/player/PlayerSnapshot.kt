@@ -1,6 +1,7 @@
 package app.yinyuehe.core.player
 
 import app.yinyuehe.core.common.model.TrackId
+import app.yinyuehe.core.common.playback.PlaybackError
 import app.yinyuehe.core.common.playback.PlaybackRepeatMode
 
 internal data class PlayerSnapshot(
@@ -28,7 +29,7 @@ internal data class PlayerSnapshot(
   val canSetShuffle: Boolean,
   val canChangeQueue: Boolean,
   val canSkipToQueueItem: Boolean,
-  val playerErrorCode: Int? = null,
+  val terminalPlaybackError: PlaybackError? = null,
 )
 
 internal fun PlayerSnapshot.toPlaybackState(): PlaybackState {
@@ -60,7 +61,7 @@ internal fun PlayerSnapshot.toPlaybackState(): PlaybackState {
     queueTrackIds = indexedTrackIds.map { (_, trackId) -> trackId },
     shuffleEnabled = shuffleEnabled,
     repeatMode = repeatMode,
-    playbackError = playerErrorCode?.let { code -> playbackError(code, mappedCurrentTrackId) },
+    playbackError = terminalPlaybackError,
     queuePersistenceLimited = queuePersistenceLimited,
     canSeek = canSeek,
     canPrevious = canPrevious,

@@ -3,6 +3,9 @@ package app.yinyuehe.core.player.service
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import app.yinyuehe.core.common.model.TrackId
+import app.yinyuehe.core.common.playback.PlaybackError
+import app.yinyuehe.core.common.playback.PlaybackErrorType
 import java.lang.reflect.Method
 import java.lang.reflect.Proxy
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -46,6 +49,7 @@ class PlaybackFailureCoordinatorTest {
         }
       } as Player
     val notices = mutableListOf<app.yinyuehe.core.common.playback.PlaybackNotice.TrackSkipped>()
+    val terminalUpdates = mutableListOf<PlaybackError?>()
     val coordinator =
       PlaybackFailureCoordinator(
         player,
@@ -53,15 +57,113 @@ class PlaybackFailureCoordinatorTest {
         PlaybackFailurePolicy(),
         kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Unconfined),
         notices::add,
+        onTerminalErrorChanged = { terminalError ->
+          terminalUpdates.add(terminalError)
+          calls += "terminal:${terminalError?.type}"
+        },
       )
 
     coordinator.onPlayerError(
       PlaybackException("not exposed", null, PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND)
     )
 
-    assertEquals(listOf("pause"), calls)
+    val expectedError =
+      PlaybackError(PlaybackErrorType.SOURCE_UNAVAILABLE, 2005, TrackId("local:broken"))
+    assertEquals(listOf("terminal:SOURCE_UNAVAILABLE", "pause"), calls)
+    assertEquals(listOf(expectedError), terminalUpdates)
     assertEquals(1, player.mediaItemCount)
     assertEquals(emptyList<Any>(), notices)
+    coordinator.close()
+  }
+
+  @Test
+  fun recoverableFailureClearsTerminalStateBeforeTransportAndSendsOneShotNotice() {
+    val tokens = PlaybackOccurrenceTokens { 11 }
+    val first = QueueOccurrence(0, PlaybackOccurrenceToken(1), TrackId("local:broken"))
+    val second = QueueOccurrence(1, PlaybackOccurrenceToken(2), TrackId("local:next"))
+    val calls = mutableListOf<String>()
+    val player =
+      Proxy.newProxyInstance(Player::class.java.classLoader, arrayOf(Player::class.java)) {
+          _,
+          method,
+          args ->
+        when (method.name) {
+          "getPlayWhenReady" -> true
+          "seekToDefaultPosition" -> {
+            calls += "seek:${args?.single()}"
+            null
+          }
+          "prepare" -> {
+            calls += "prepare"
+            null
+          }
+          "play" -> {
+            calls += "play"
+            null
+          }
+          "hashCode" -> 1
+          "equals" -> false
+          "toString" -> "RecoverableFailurePlayer"
+          else -> method.failureDefaultValue()
+        }
+      } as Player
+    val terminalUpdates = mutableListOf<PlaybackError?>()
+    val coordinator =
+      PlaybackFailureCoordinator(
+        player = player,
+        tokens = tokens,
+        policy = PlaybackFailurePolicy(),
+        scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Unconfined),
+        onNotice = { calls += "notice:${it.error.trackId?.value}" },
+        onTerminalErrorChanged = { terminalError ->
+          terminalUpdates.add(terminalError)
+          calls += "terminal:${terminalError?.type}"
+        },
+        currentOccurrenceProvider = { first },
+        failureCandidatesProvider = { listOf(second) },
+      )
+
+    coordinator.onPlayerError(
+      PlaybackException("must not escape", null, PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND)
+    )
+
+    assertEquals(listOf<PlaybackError?>(null), terminalUpdates)
+    assertEquals(
+      listOf("terminal:null", "seek:1", "prepare", "play", "notice:local:broken"),
+      calls,
+    )
+    coordinator.close()
+  }
+
+  @Test
+  fun naturalEndAndExplicitRetryClearDecisionOwnedTerminalState() {
+    val terminalUpdates = mutableListOf<PlaybackError?>()
+    val player =
+      Proxy.newProxyInstance(Player::class.java.classLoader, arrayOf(Player::class.java)) {
+          _,
+          method,
+          _ ->
+        when (method.name) {
+          "hashCode" -> 1
+          "equals" -> false
+          "toString" -> "ResetPlayer"
+          else -> method.failureDefaultValue()
+        }
+      } as Player
+    val coordinator =
+      PlaybackFailureCoordinator(
+        player = player,
+        tokens = PlaybackOccurrenceTokens { 13 },
+        policy = PlaybackFailurePolicy(),
+        scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Unconfined),
+        onNotice = {},
+        onTerminalErrorChanged = { terminalError -> terminalUpdates.add(terminalError) },
+      )
+
+    coordinator.onPlaybackEnded()
+    coordinator.onUserRetry()
+
+    assertEquals(listOf<PlaybackError?>(null, null), terminalUpdates)
     coordinator.close()
   }
 

@@ -283,6 +283,7 @@ private fun MediaController.snapshot(connection: PlaybackConnection): PlayerSnap
   val index = currentMediaItemIndex.takeIf { it in queueMediaIds.indices } ?: C.INDEX_UNSET
   val currentItem = currentMediaItem
   val currentPlaybackState = playbackState
+  val currentSessionExtras = sessionExtras
   return PlayerSnapshot(
     connection = connection,
     currentMediaId = currentItem?.mediaId,
@@ -297,8 +298,7 @@ private fun MediaController.snapshot(connection: PlaybackConnection): PlayerSnap
     queueMediaIds = queueMediaIds,
     shuffleEnabled = shuffleModeEnabled,
     repeatMode = media3RepeatModeToPlaybackRepeatMode(repeatMode),
-    queuePersistenceLimited =
-      PlaybackSessionProtocol.queuePersistenceLimited(sessionExtras),
+    queuePersistenceLimited = PlaybackSessionProtocol.queuePersistenceLimited(currentSessionExtras),
     canPlayPause = isCommandAvailable(Player.COMMAND_PLAY_PAUSE),
     canPrepare = isCommandAvailable(Player.COMMAND_PREPARE),
     canSeekToDefaultPosition = isCommandAvailable(Player.COMMAND_SEEK_TO_DEFAULT_POSITION),
@@ -310,7 +310,7 @@ private fun MediaController.snapshot(connection: PlaybackConnection): PlayerSnap
     canSetShuffle = isCommandAvailable(Player.COMMAND_SET_SHUFFLE_MODE),
     canChangeQueue = isCommandAvailable(Player.COMMAND_CHANGE_MEDIA_ITEMS),
     canSkipToQueueItem = isCommandAvailable(Player.COMMAND_SEEK_TO_MEDIA_ITEM),
-    playerErrorCode = playerError?.errorCode,
+    terminalPlaybackError = PlaybackSessionProtocol.terminalPlaybackError(currentSessionExtras),
   )
 }
 

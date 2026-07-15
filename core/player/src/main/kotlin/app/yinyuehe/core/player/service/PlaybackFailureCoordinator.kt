@@ -2,6 +2,7 @@ package app.yinyuehe.core.player.service
 
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import app.yinyuehe.core.common.playback.PlaybackError
 import app.yinyuehe.core.common.playback.PlaybackNotice
 import app.yinyuehe.core.player.playbackError
 import kotlinx.coroutines.CoroutineScope
@@ -18,35 +19,54 @@ internal class PlaybackFailureCoordinator(
   private val onNotice: (PlaybackNotice.TrackSkipped) -> Unit,
   private val sampleIntervalMs: Long = 250,
   private val onStablePlayback: (PlaybackOccurrenceToken) -> Unit = policy::onStablePlayback,
+  private val onTerminalErrorChanged: (PlaybackError?) -> Unit = {},
+  private val currentOccurrenceProvider: () -> QueueOccurrence? = {
+    player.currentOccurrence(tokens)
+  },
+  private val failureCandidatesProvider: () -> List<QueueOccurrence> = {
+    player.failureCandidates(tokens)
+  },
 ) {
   private var stabilityJob: Job? = null
 
   fun onPlayerError(exception: PlaybackException) {
     stabilityJob?.cancel()
-    val failed = player.currentOccurrence(tokens) ?: return
+    val failed =
+      currentOccurrenceProvider()
+        ?: run {
+          onTerminalErrorChanged(playbackError(exception.errorCode, trackId = null))
+          player.pause()
+          return
+        }
     val error = playbackError(exception.errorCode, failed.trackId)
     when (
       val decision =
-        policy.onFailure(error, failed, player.failureCandidates(tokens), player.playWhenReady)
+        policy.onFailure(error, failed, failureCandidatesProvider(), player.playWhenReady)
     ) {
       is FailureDecision.Skip -> {
+        onTerminalErrorChanged(null)
         player.seekToDefaultPosition(decision.targetIndex)
         player.prepare()
         if (decision.resumePlayback) player.play() else player.pause()
         onNotice(PlaybackNotice.TrackSkipped(decision.error))
         trackStableTarget(decision.targetToken)
       }
-      is FailureDecision.Stop -> player.pause()
+      is FailureDecision.Stop -> {
+        onTerminalErrorChanged(decision.error)
+        player.pause()
+      }
     }
   }
 
   fun onPlaybackEnded() {
     stabilityJob?.cancel()
+    onTerminalErrorChanged(null)
     policy.onPlaybackEnded()
   }
 
   fun onUserRetry() {
     stabilityJob?.cancel()
+    onTerminalErrorChanged(null)
     policy.onUserRetry()
   }
 
@@ -68,7 +88,7 @@ internal class PlaybackFailureCoordinator(
           delay(sampleIntervalMs)
           when (
             progress.sample(
-              occurrence = player.currentOccurrence(tokens),
+              occurrence = currentOccurrenceProvider(),
               positionMs = player.currentPosition,
               isPlaying = player.isPlaying,
             )

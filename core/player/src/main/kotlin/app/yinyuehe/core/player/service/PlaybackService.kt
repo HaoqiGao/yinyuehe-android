@@ -13,6 +13,7 @@ import app.yinyuehe.core.common.analytics.PlaybackEventRecorder
 import app.yinyuehe.core.common.analytics.PlaybackHistoryRecorder
 import app.yinyuehe.core.common.playback.PlaybackQueueResolver
 import app.yinyuehe.core.common.playback.PlaybackSnapshotStore
+import app.yinyuehe.core.common.playback.PlaybackError
 import app.yinyuehe.core.player.PlaybackSessionProtocol
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
@@ -41,6 +42,7 @@ class PlaybackService : MediaLibraryService() {
   private var persistenceListener: Player.Listener? = null
   private var failureCoordinator: PlaybackFailureCoordinator? = null
   private var failureListener: Player.Listener? = null
+  private var terminalPlaybackError: PlaybackError? = null
 
   override fun onCreate() {
     super.onCreate()
@@ -84,22 +86,11 @@ class PlaybackService : MediaLibraryService() {
       )
     val persistenceListener =
       PlaybackPersistencePlayerListener(player, tokens, gate, persistence) {
-        session?.setSessionExtras(
-          PlaybackSessionProtocol.sessionExtras(gate.queuePersistenceLimited)
-        )
+        publishSessionExtras(gate)
       }
     player.addListener(persistenceListener)
     this.persistenceListener = persistenceListener
     this.persistenceCoordinator = persistence
-
-    val callback =
-      PlaybackLibrarySessionCallback(
-        tokens,
-        gate,
-        onUserRetry = { failureCoordinator?.onUserRetry() },
-      )
-    session = MediaLibrarySession.Builder(this, player, callback).build()
-    session?.setSessionExtras(PlaybackSessionProtocol.sessionExtras(false))
 
     val failureCoordinator =
       PlaybackFailureCoordinator(
@@ -118,11 +109,24 @@ class PlaybackService : MediaLibraryService() {
               session?.sendCustomCommand(controller, encoded.command, encoded.extras)
             }
         },
+        onTerminalErrorChanged = { terminalError ->
+          terminalPlaybackError = terminalError
+          publishSessionExtras(gate)
+        },
       )
     val failureListener = PlaybackFailurePlayerListener(failureCoordinator)
     player.addListener(failureListener)
     this.failureCoordinator = failureCoordinator
     this.failureListener = failureListener
+
+    val callback =
+      PlaybackLibrarySessionCallback(
+        tokens,
+        gate,
+        onUserRetry = { failureCoordinator.onUserRetry() },
+      )
+    session = MediaLibrarySession.Builder(this, player, callback).build()
+    publishSessionExtras(gate)
 
     restoreCoordinator =
       PlaybackRestoreCoordinator(
@@ -136,9 +140,7 @@ class PlaybackService : MediaLibraryService() {
             writer.submit(snapshot, SnapshotWriteUrgency.IMMEDIATE)
           },
           onGateChanged = {
-            session?.setSessionExtras(
-              PlaybackSessionProtocol.sessionExtras(gate.queuePersistenceLimited)
-            )
+            publishSessionExtras(gate)
           },
           onFailure = { error ->
             Log.w(TAG, "Playback restore failed: ${error::class.java.simpleName}")
@@ -192,6 +194,15 @@ class PlaybackService : MediaLibraryService() {
     recordingQueue?.record(update)
   }
 
+  private fun publishSessionExtras(gate: RestorePersistenceGate) {
+    session?.setSessionExtras(
+      PlaybackSessionProtocol.sessionExtras(
+        queuePersistenceLimited = gate.queuePersistenceLimited,
+        terminalPlaybackError = terminalPlaybackError,
+      )
+    )
+  }
+
   override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? =
     session
 
@@ -206,6 +217,7 @@ class PlaybackService : MediaLibraryService() {
     failureListener = null
     failureCoordinator?.close()
     failureCoordinator = null
+    terminalPlaybackError = null
     serviceJob.cancel()
     playerListener?.let { listener -> player?.removeListener(listener) }
     session?.release()

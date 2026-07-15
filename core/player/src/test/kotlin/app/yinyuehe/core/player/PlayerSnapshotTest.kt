@@ -3,6 +3,8 @@ package app.yinyuehe.core.player
 import androidx.media3.common.C
 import androidx.media3.common.Player
 import app.yinyuehe.core.common.model.TrackId
+import app.yinyuehe.core.common.playback.PlaybackError
+import app.yinyuehe.core.common.playback.PlaybackErrorType
 import app.yinyuehe.core.common.playback.PlaybackRepeatMode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -292,6 +294,36 @@ class PlayerSnapshotTest {
     assertNull(state.playbackError)
     assertNull(state.connectionError)
   }
+
+  @Test
+  fun snapshotMapsOnlyTheDecisionOwnedTerminalError() {
+    val terminalError =
+      PlaybackError(PlaybackErrorType.SOURCE_UNAVAILABLE, 2005, TrackId("local:one"))
+
+    assertNull(
+      snapshot(
+          playWhenReady = false,
+          isEnded = false,
+          canPlayPause = true,
+          canSeekToDefaultPosition = true,
+          terminalPlaybackError = null,
+        )
+        .toPlaybackState()
+        .playbackError
+    )
+    assertEquals(
+      terminalError,
+      snapshot(
+          playWhenReady = false,
+          isEnded = false,
+          canPlayPause = true,
+          canSeekToDefaultPosition = true,
+          terminalPlaybackError = terminalError,
+        )
+        .toPlaybackState()
+        .playbackError,
+    )
+  }
 }
 
 private fun snapshot(
@@ -302,6 +334,7 @@ private fun snapshot(
   hasCurrentMediaItem: Boolean = true,
   isIdle: Boolean = false,
   canPrepare: Boolean = true,
+  terminalPlaybackError: PlaybackError? = null,
 ) =
   PlayerSnapshot(
     connection = PlaybackConnection.CONNECTED,
@@ -328,4 +361,5 @@ private fun snapshot(
     canSetShuffle = false,
     canChangeQueue = false,
     canSkipToQueueItem = false,
+    terminalPlaybackError = terminalPlaybackError,
   )
