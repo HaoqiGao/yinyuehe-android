@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <application>
+    <activity
+        android:name=".M3AControllerProbeActivity"
+        android:excludeFromRecents="true"
+        android:exported="true"
+        android:process=":m3a_controller"
+        android:theme="@android:style/Theme.Material.NoActionBar" />
+  </application>
+</manifest>
