@@ -9,6 +9,8 @@ import app.yinyuehe.core.common.model.LibraryContent
 import app.yinyuehe.core.common.model.LibrarySource
 import app.yinyuehe.core.common.model.Track
 import app.yinyuehe.core.common.model.TrackId
+import app.yinyuehe.core.common.playback.PlaybackNotice
+import app.yinyuehe.core.common.playback.PlaybackRepeatMode
 import app.yinyuehe.core.data.TrackRepository
 import app.yinyuehe.core.data.scan.LibraryScanner
 import app.yinyuehe.core.player.PlaybackController
@@ -19,6 +21,7 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -27,6 +30,7 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -44,6 +48,9 @@ class LibraryViewModel @Inject internal constructor(
   private val favoriteAppliedStates = mutableMapOf<TrackId, Boolean>()
   private var playbackRequestJob: Job? = null
   private var scanJob: Job? = null
+  private val effectChannel = Channel<MusicBoxEffect>(Channel.BUFFERED)
+
+  val effects: Flow<MusicBoxEffect> = effectChannel.receiveAsFlow()
 
   private val repositoryCatalog: Flow<RepositoryCatalog> =
     combine(
@@ -92,6 +99,14 @@ class LibraryViewModel @Inject internal constructor(
 
   init {
     viewModelScope.launch {
+      playbackController.notices.collect { notice ->
+        when (notice) {
+          is PlaybackNotice.TrackSkipped ->
+            effectChannel.send(MusicBoxEffect.TrackSkipped(notice.error.type))
+        }
+      }
+    }
+    viewModelScope.launch {
       repository.observeFavoriteTrackIds().collect { favoriteIds ->
         persistedFavoriteIds.value = favoriteIds
         favoriteAppliedStates.entries.removeAll { (trackId, applied) ->
@@ -123,16 +138,78 @@ class LibraryViewModel @Inject internal constructor(
       is MusicBoxAction.PlayTrack -> playTrack(action.trackId, action.collection)
       is MusicBoxAction.PlayAll -> playCollection(action.collection, shuffle = false)
       is MusicBoxAction.PlayRandom -> playCollection(action.collection, shuffle = true)
-      MusicBoxAction.TogglePlayPause -> playbackController.togglePlayPause()
-      MusicBoxAction.Previous -> playbackController.seekToPrevious()
-      MusicBoxAction.Next -> playbackController.seekToNext()
-      is MusicBoxAction.SeekTo -> playbackController.seekTo(action.positionMs.coerceAtLeast(0))
-      is MusicBoxAction.AddToQueue -> uiState.value.trackCatalog[action.trackId]?.let {
-        playbackController.addToQueue(it)
-      }
-      is MusicBoxAction.RemoveQueueItem -> playbackController.removeQueueItem(action.index)
-      is MusicBoxAction.JumpToQueueItem -> playbackController.skipToQueueItem(action.index)
+      MusicBoxAction.TogglePlayPause ->
+        if (uiState.value.playback.canTogglePlayPause) playbackController.togglePlayPause()
+      MusicBoxAction.Previous ->
+        if (uiState.value.playback.canPrevious) playbackController.seekToPrevious()
+      MusicBoxAction.Next ->
+        if (uiState.value.playback.canNext) playbackController.seekToNext()
+      MusicBoxAction.CycleRepeatMode -> cycleRepeatMode()
+      MusicBoxAction.ToggleShuffle -> toggleShuffle()
+      is MusicBoxAction.SeekTo ->
+        if (uiState.value.playback.canSeek) {
+          playbackController.seekTo(action.positionMs.coerceAtLeast(0))
+        }
+      is MusicBoxAction.AddToQueue -> addToQueue(action.trackId)
+      is MusicBoxAction.RemoveQueueItem -> removeQueueItem(action.index)
+      is MusicBoxAction.MoveQueueItem -> moveQueueItem(action.index, action.direction)
+      is MusicBoxAction.JumpToQueueItem -> jumpToQueueItem(action.index)
       is MusicBoxAction.ToggleFavorite -> toggleFavorite(action.trackId)
+    }
+  }
+
+  private fun cycleRepeatMode() {
+    val playback = uiState.value.playback
+    if (!playback.canSetRepeatMode) return
+    val next =
+      when (playback.repeatMode) {
+        PlaybackRepeatMode.OFF -> PlaybackRepeatMode.ALL
+        PlaybackRepeatMode.ALL -> PlaybackRepeatMode.ONE
+        PlaybackRepeatMode.ONE -> PlaybackRepeatMode.OFF
+      }
+    playbackController.setRepeatMode(next)
+  }
+
+  private fun toggleShuffle() {
+    val playback = uiState.value.playback
+    if (!playback.canSetShuffle) return
+    playbackController.setShuffleEnabled(!playback.shuffleEnabled)
+  }
+
+  private fun canEditQueue(): Boolean =
+    uiState.value.playback.let { playback ->
+      playback.canChangeQueue && !playback.queuePersistenceLimited
+    }
+
+  private fun addToQueue(trackId: TrackId) {
+    if (!canEditQueue()) return
+    uiState.value.trackCatalog[trackId]?.let(playbackController::addToQueue)
+  }
+
+  private fun removeQueueItem(index: Int) {
+    val playback = uiState.value.playback
+    if (canEditQueue() && index in playback.queueTrackIds.indices) {
+      playbackController.removeQueueItem(index)
+    }
+  }
+
+  private fun moveQueueItem(index: Int, direction: QueueMoveDirection) {
+    val playback = uiState.value.playback
+    if (!canEditQueue()) return
+    val target =
+      when (direction) {
+        QueueMoveDirection.UP -> index - 1
+        QueueMoveDirection.DOWN -> index + 1
+      }
+    if (index in playback.queueTrackIds.indices && target in playback.queueTrackIds.indices) {
+      playbackController.moveQueueItem(index, target)
+    }
+  }
+
+  private fun jumpToQueueItem(index: Int) {
+    val playback = uiState.value.playback
+    if (playback.canSkipToQueueItem && index in playback.queueTrackIds.indices) {
+      playbackController.skipToQueueItem(index)
     }
   }
 

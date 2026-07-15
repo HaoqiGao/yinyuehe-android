@@ -35,6 +35,14 @@ class FakePlaybackController : PlaybackController {
     playResult
   }
 
+  fun emitState(value: PlaybackState) {
+    mutableState.value = value
+  }
+
+  fun emitNotice(notice: PlaybackNotice) {
+    check(mutableNotices.tryEmit(notice))
+  }
+
   override suspend fun play(tracks: List<Track>, startIndex: Int, shuffle: Boolean): Boolean {
     val request = PlayRequest(tracks, startIndex, shuffle)
     playRequests += request

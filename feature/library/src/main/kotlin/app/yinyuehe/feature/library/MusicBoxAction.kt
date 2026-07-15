@@ -8,6 +8,8 @@ enum class TrackCollection {
   RECENT,
 }
 
+enum class QueueMoveDirection { UP, DOWN }
+
 sealed interface MusicBoxAction {
   data class SelectDestination(val destination: MusicBoxDestination) : MusicBoxAction
 
@@ -35,11 +37,20 @@ sealed interface MusicBoxAction {
 
   data object Next : MusicBoxAction
 
+  data object CycleRepeatMode : MusicBoxAction
+
+  data object ToggleShuffle : MusicBoxAction
+
   data class SeekTo(val positionMs: Long) : MusicBoxAction
 
   data class AddToQueue(val trackId: TrackId) : MusicBoxAction
 
   data class RemoveQueueItem(val index: Int) : MusicBoxAction
+
+  data class MoveQueueItem(
+    val index: Int,
+    val direction: QueueMoveDirection,
+  ) : MusicBoxAction
 
   data class JumpToQueueItem(val index: Int) : MusicBoxAction
 

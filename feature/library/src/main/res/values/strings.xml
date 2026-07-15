@@ -1,4 +1,30 @@
 <resources>
   <string name="unknown_track">未知曲目</string>
   <string name="play_track_content_description">播放%1$s</string>
+  <string name="home_add_queue_content_description">将%1$s加入播放队列</string>
+  <string name="player_repeat_mode_off">关闭</string>
+  <string name="player_repeat_mode_all">全部</string>
+  <string name="player_repeat_mode_one">单曲</string>
+  <string name="player_repeat_format">重复：%1$s</string>
+  <string name="player_repeat_content_description">重复模式：%1$s</string>
+  <string name="player_shuffle_on">随机：开</string>
+  <string name="player_shuffle_off">随机：关</string>
+  <string name="player_queue_move_up_button">↑</string>
+  <string name="player_queue_move_down_button">↓</string>
+  <string name="player_queue_jump_button">跳</string>
+  <string name="player_queue_remove_button">删</string>
+  <string name="player_queue_move_up_content_description">上移%1$s</string>
+  <string name="player_queue_move_down_content_description">下移%1$s</string>
+  <string name="player_queue_jump_content_description">跳转到%1$s</string>
+  <string name="player_queue_remove_content_description">从队列移除%1$s</string>
+  <string name="playback_error_source_unavailable">音频源不可用，请检查文件后重试</string>
+  <string name="playback_error_unsupported_format">音频格式不受支持</string>
+  <string name="playback_error_decoder">音频解码失败，请重试</string>
+  <string name="playback_error_unknown">播放失败，请重试</string>
+  <string name="playback_connection_retries_exhausted">播放器连接多次失败，请检查后重试</string>
+  <string name="playback_queue_partial_restore_guidance">重新播放全部可替代受保护的旧队列</string>
+  <string name="playback_skipped_source_unavailable">已跳过：音频源不可用</string>
+  <string name="playback_skipped_unsupported_format">已跳过：音频格式不受支持</string>
+  <string name="playback_skipped_decoder">已跳过：音频解码失败</string>
+  <string name="playback_skipped_unknown">已跳过：播放发生错误</string>
 </resources>
