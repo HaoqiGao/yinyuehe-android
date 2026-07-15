@@ -133,19 +133,25 @@ Task 9 failure policy + notices ── Task 10 Controller reconnect/state
 **Interfaces:**
 
 - Consumes: existing `app.yinyuehe.core.common.model.Track` and `TrackId`.
+- Normative value semantics: `PlaybackSnapshot` and `PlaybackQueueResolution` are ordinary final classes that own immutable value snapshots. Every public constructor and `copy` path defensively copies collection inputs and exposes only an unmodifiable `List`. Preserve the named constructor parameters, property names and `List` types, defaults, `copy`, `componentN`, `equals`, `hashCode`, and `toString` value behavior. Kotlin's `data` modifier and `KClass.isData` metadata are not part of the contract. Do not replace either type with a shallow-copy `data class`; the other data classes below remain data classes.
 - Produces:
 
 ```kotlin
 enum class PlaybackRepeatMode { OFF, ALL, ONE }
 
-data class PlaybackSnapshot(
+class PlaybackSnapshot(
   val schemaVersion: Int = CURRENT_SCHEMA_VERSION,
-  val mediaIds: List<TrackId> = emptyList(),
+  mediaIds: List<TrackId> = emptyList(),
   val currentIndex: Int = -1,
   val positionMs: Long = 0,
   val shuffleEnabled: Boolean = false,
   val repeatMode: PlaybackRepeatMode = PlaybackRepeatMode.OFF,
-)
+) {
+  val mediaIds: List<TrackId> = mediaIds.toImmutableSnapshot()
+
+  // Required: validated constructor plus defensive copy(...), component1..component6,
+  // equals/hashCode/toString over the six public values. See Steps 4–5.
+}
 
 sealed interface PlaybackSnapshotReadResult {
   data class Usable(val snapshot: PlaybackSnapshot) : PlaybackSnapshotReadResult
@@ -161,10 +167,15 @@ enum class PlaybackQueueBlockReason { PERMISSION_DENIED }
 
 sealed interface PlaybackQueueItemResolution
 
-data class PlaybackQueueResolution(
-  val items: List<PlaybackQueueItemResolution>,
+class PlaybackQueueResolution(
+  items: List<PlaybackQueueItemResolution>,
   val temporaryBlockReason: PlaybackQueueBlockReason? = null,
-)
+) {
+  val items: List<PlaybackQueueItemResolution> = items.toImmutableSnapshot()
+
+  // Required: validated constructor plus defensive copy(...), component1/component2,
+  // equals/hashCode/toString over the two public values. See Steps 4–5.
+}
 
 interface PlaybackQueueResolver {
   suspend fun resolve(mediaIds: List<TrackId>): PlaybackQueueResolution
@@ -228,6 +239,39 @@ class PlaybackSnapshotTest {
 
     assertEquals(listOf(id, id), snapshot.mediaIds)
     assertEquals(1, snapshot.currentIndex)
+  }
+
+  @Test
+  fun mutableMediaIds_areDefensivelySnapshottedByConstructor() {
+    val first = TrackId("demo:morning-pulse")
+    val second = TrackId("demo:city-walk")
+    val mutableMediaIds = mutableListOf(first, second)
+    val snapshot = PlaybackSnapshot(mediaIds = mutableMediaIds, currentIndex = 1)
+    val expected = PlaybackSnapshot(mediaIds = listOf(first, second), currentIndex = 1)
+    val initialHashCode = snapshot.hashCode()
+
+    mutableMediaIds.clear()
+
+    assertEquals(listOf(first, second), snapshot.mediaIds)
+    assertEquals(expected, snapshot)
+    assertEquals(initialHashCode, snapshot.hashCode())
+    assertEquals(true, snapshot.currentIndex in snapshot.mediaIds.indices)
+  }
+
+  @Test
+  fun copy_defensivelySnapshotsMutableMediaIds() {
+    val id = TrackId("demo:morning-pulse")
+    val mutableMediaIds = mutableListOf(id)
+    val snapshot = PlaybackSnapshot.empty().copy(mediaIds = mutableMediaIds, currentIndex = 0)
+    val expected = PlaybackSnapshot(mediaIds = listOf(id), currentIndex = 0)
+    val initialHashCode = snapshot.hashCode()
+
+    mutableMediaIds.clear()
+
+    assertEquals(listOf(id), snapshot.mediaIds)
+    assertEquals(expected, snapshot)
+    assertEquals(initialHashCode, snapshot.hashCode())
+    assertEquals(true, snapshot.currentIndex in snapshot.mediaIds.indices)
   }
 
   @Test
@@ -316,6 +360,62 @@ class PlaybackQueueResolutionTest {
       listOf(demoTrack.id, localId, demoTrack.id),
       resolution.items.map { it.trackId },
     )
+  }
+
+  @Test
+  fun mutableItems_areDefensivelySnapshottedByConstructor() {
+    val blockedId = TrackId("local:v1:ZXh0ZXJuYWw:1")
+    val mutableItems =
+      mutableListOf<PlaybackQueueItemResolution>(
+        PlaybackQueueItemResolution.Resolved(0, demoTrack.id, demoTrack),
+        PlaybackQueueItemResolution.TemporarilyBlocked(
+          originalIndex = 1,
+          trackId = blockedId,
+          reason = PlaybackQueueBlockReason.PERMISSION_DENIED,
+        ),
+      )
+    val resolution =
+      PlaybackQueueResolution(
+        items = mutableItems,
+        temporaryBlockReason = PlaybackQueueBlockReason.PERMISSION_DENIED,
+      )
+    val expected =
+      PlaybackQueueResolution(
+        items = mutableItems.toList(),
+        temporaryBlockReason = PlaybackQueueBlockReason.PERMISSION_DENIED,
+      )
+    val initialHashCode = resolution.hashCode()
+
+    mutableItems.clear()
+
+    assertEquals(listOf(0, 1), resolution.items.map { it.originalIndex })
+    assertEquals(expected, resolution)
+    assertEquals(initialHashCode, resolution.hashCode())
+    assertEquals(
+      listOf(PlaybackQueueBlockReason.PERMISSION_DENIED),
+      resolution.items
+        .filterIsInstance<PlaybackQueueItemResolution.TemporarilyBlocked>()
+        .map { it.reason },
+    )
+  }
+
+  @Test
+  fun copy_defensivelySnapshotsMutableItems() {
+    val mutableItems =
+      mutableListOf<PlaybackQueueItemResolution>(
+        PlaybackQueueItemResolution.Resolved(0, demoTrack.id, demoTrack),
+        PlaybackQueueItemResolution.Resolved(1, demoTrack.id, demoTrack),
+      )
+    val resolution = PlaybackQueueResolution(emptyList()).copy(items = mutableItems)
+    val expected = PlaybackQueueResolution(mutableItems.toList())
+    val initialHashCode = resolution.hashCode()
+
+    mutableItems.removeAt(0)
+
+    assertEquals(listOf(0, 1), resolution.items.map { it.originalIndex })
+    assertEquals(expected, resolution)
+    assertEquals(initialHashCode, resolution.hashCode())
+    assertEquals(resolution.items.indices.toList(), resolution.items.map { it.originalIndex })
   }
 
   @Test
@@ -411,30 +511,93 @@ Create `PlaybackSnapshot.kt`:
 package app.yinyuehe.core.common.playback
 
 import app.yinyuehe.core.common.model.TrackId
+import java.util.Collections
 
 enum class PlaybackRepeatMode { OFF, ALL, ONE }
 
-data class PlaybackSnapshot(
+class PlaybackSnapshot(
   val schemaVersion: Int = CURRENT_SCHEMA_VERSION,
-  val mediaIds: List<TrackId> = emptyList(),
+  mediaIds: List<TrackId> = emptyList(),
   val currentIndex: Int = -1,
   val positionMs: Long = 0,
   val shuffleEnabled: Boolean = false,
   val repeatMode: PlaybackRepeatMode = PlaybackRepeatMode.OFF,
 ) {
+  val mediaIds: List<TrackId> = mediaIds.toImmutableSnapshot()
+
   init {
     require(schemaVersion == CURRENT_SCHEMA_VERSION) {
       "Usable playback snapshots must use schema $CURRENT_SCHEMA_VERSION"
     }
     require(positionMs >= 0) { "Playback position must not be negative" }
     require(
-      if (mediaIds.isEmpty()) {
+      if (this.mediaIds.isEmpty()) {
         currentIndex == -1
       } else {
-        currentIndex in mediaIds.indices
+        currentIndex in this.mediaIds.indices
       }
     ) { "Playback current index must match the queue" }
   }
+
+  operator fun component1(): Int = schemaVersion
+
+  operator fun component2(): List<TrackId> = mediaIds
+
+  operator fun component3(): Int = currentIndex
+
+  operator fun component4(): Long = positionMs
+
+  operator fun component5(): Boolean = shuffleEnabled
+
+  operator fun component6(): PlaybackRepeatMode = repeatMode
+
+  fun copy(
+    schemaVersion: Int = this.schemaVersion,
+    mediaIds: List<TrackId> = this.mediaIds,
+    currentIndex: Int = this.currentIndex,
+    positionMs: Long = this.positionMs,
+    shuffleEnabled: Boolean = this.shuffleEnabled,
+    repeatMode: PlaybackRepeatMode = this.repeatMode,
+  ): PlaybackSnapshot =
+    PlaybackSnapshot(
+      schemaVersion = schemaVersion,
+      mediaIds = mediaIds,
+      currentIndex = currentIndex,
+      positionMs = positionMs,
+      shuffleEnabled = shuffleEnabled,
+      repeatMode = repeatMode,
+    )
+
+  override fun equals(other: Any?): Boolean {
+    if (this === other) return true
+    if (other !is PlaybackSnapshot) return false
+
+    return schemaVersion == other.schemaVersion &&
+      mediaIds == other.mediaIds &&
+      currentIndex == other.currentIndex &&
+      positionMs == other.positionMs &&
+      shuffleEnabled == other.shuffleEnabled &&
+      repeatMode == other.repeatMode
+  }
+
+  override fun hashCode(): Int {
+    var result = schemaVersion
+    result = 31 * result + mediaIds.hashCode()
+    result = 31 * result + currentIndex
+    result = 31 * result + positionMs.hashCode()
+    result = 31 * result + shuffleEnabled.hashCode()
+    result = 31 * result + repeatMode.hashCode()
+    return result
+  }
+
+  override fun toString(): String =
+    "PlaybackSnapshot(" +
+      "schemaVersion=$schemaVersion, " +
+      "mediaIds=$mediaIds, " +
+      "currentIndex=$currentIndex, " +
+      "positionMs=$positionMs, " +
+      "shuffleEnabled=$shuffleEnabled, " +
+      "repeatMode=$repeatMode)"
 
   companion object {
     const val CURRENT_SCHEMA_VERSION: Int = 1
@@ -442,6 +605,9 @@ data class PlaybackSnapshot(
     fun empty(): PlaybackSnapshot = PlaybackSnapshot()
   }
 }
+
+private fun <T> List<T>.toImmutableSnapshot(): List<T> =
+  Collections.unmodifiableList(ArrayList(this))
 
 sealed interface PlaybackSnapshotReadResult {
   data class Usable(val snapshot: PlaybackSnapshot) : PlaybackSnapshotReadResult
@@ -465,6 +631,7 @@ package app.yinyuehe.core.common.playback
 
 import app.yinyuehe.core.common.model.Track
 import app.yinyuehe.core.common.model.TrackId
+import java.util.Collections
 
 enum class PlaybackQueueBlockReason { PERMISSION_DENIED }
 
@@ -490,20 +657,22 @@ sealed interface PlaybackQueueItemResolution {
   ) : PlaybackQueueItemResolution
 }
 
-data class PlaybackQueueResolution(
-  val items: List<PlaybackQueueItemResolution>,
+class PlaybackQueueResolution(
+  items: List<PlaybackQueueItemResolution>,
   val temporaryBlockReason: PlaybackQueueBlockReason? = null,
 ) {
+  val items: List<PlaybackQueueItemResolution> = items.toImmutableSnapshot()
+
   init {
-    require(items.map { it.originalIndex } == items.indices.toList()) {
+    require(this.items.map { it.originalIndex } == this.items.indices.toList()) {
       "Queue resolution must preserve one ordered result per occurrence"
     }
     require(
-      items
+      this.items
         .filterIsInstance<PlaybackQueueItemResolution.Resolved>()
         .all { item -> item.track.id == item.trackId }
     ) { "Resolved track identity must match its occurrence" }
-    val blocked = items.filterIsInstance<PlaybackQueueItemResolution.TemporarilyBlocked>()
+    val blocked = this.items.filterIsInstance<PlaybackQueueItemResolution.TemporarilyBlocked>()
     require(
       if (temporaryBlockReason == null) {
         blocked.isEmpty()
@@ -512,7 +681,38 @@ data class PlaybackQueueResolution(
       }
     ) { "Temporary block reason must describe every blocked occurrence" }
   }
+
+  operator fun component1(): List<PlaybackQueueItemResolution> = items
+
+  operator fun component2(): PlaybackQueueBlockReason? = temporaryBlockReason
+
+  fun copy(
+    items: List<PlaybackQueueItemResolution> = this.items,
+    temporaryBlockReason: PlaybackQueueBlockReason? = this.temporaryBlockReason,
+  ): PlaybackQueueResolution =
+    PlaybackQueueResolution(
+      items = items,
+      temporaryBlockReason = temporaryBlockReason,
+    )
+
+  override fun equals(other: Any?): Boolean {
+    if (this === other) return true
+    if (other !is PlaybackQueueResolution) return false
+
+    return items == other.items && temporaryBlockReason == other.temporaryBlockReason
+  }
+
+  override fun hashCode(): Int =
+    31 * items.hashCode() + (temporaryBlockReason?.hashCode() ?: 0)
+
+  override fun toString(): String =
+    "PlaybackQueueResolution(" +
+      "items=$items, " +
+      "temporaryBlockReason=$temporaryBlockReason)"
 }
+
+private fun <T> List<T>.toImmutableSnapshot(): List<T> =
+  Collections.unmodifiableList(ArrayList(this))
 
 interface PlaybackQueueResolver {
   suspend fun resolve(mediaIds: List<TrackId>): PlaybackQueueResolution

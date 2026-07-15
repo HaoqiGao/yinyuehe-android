@@ -60,6 +60,12 @@ M3-A 的目标是建立一个由 Service 拥有、可测试、不自动出声的
 - `PlaybackSnapshotStore`：提供挂起的读取结果与原子写入。
 - `PlaybackQueueResolver`：把有序 ID 恢复为 `PlaybackQueueResolution`；瞬时 Room/IO 异常向恢复协调器传播，不能伪装成“全部永久缺失”。
 
+以下是这两个集合持有型契约的规范性值语义：
+
+- `PlaybackSnapshot` 与 `PlaybackQueueResolution` 必须是不可变值快照。所有公共构造与 `copy` 路径都必须对集合输入做防御性复制，并且只能暴露不可修改的 `List`；构造校验、属性读取、相等性与哈希必须观察同一份内部快照。
+- 公共契约保留当前的命名构造参数、属性名称与 `List` 属性类型、默认参数，以及 `copy`、`componentN`、`equals`、`hashCode`、`toString` 的值语义。
+- Kotlin `data` modifier 与反射元数据 `KClass.isData` 明确不属于公共契约。实现使用普通 final class，以避免 `data class` 主构造与生成的浅 `copy` 保存调用方可变集合别名。
+
 `core:player` 与 `core:data` 都只依赖这些契约，不互相引入，避免模块环。
 
 ### 4.2 `:core:data`
