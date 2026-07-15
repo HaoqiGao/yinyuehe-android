@@ -2,11 +2,13 @@ package app.yinyuehe.core.data
 
 import app.yinyuehe.core.common.analytics.PlaybackEventRecorder
 import app.yinyuehe.core.common.analytics.PlaybackHistoryRecorder
+import app.yinyuehe.core.common.playback.PlaybackSnapshotStore
 import app.yinyuehe.core.data.analytics.RoomPlaybackEventRecorder
 import app.yinyuehe.core.data.analytics.RoomPlaybackHistoryRecorder
 import app.yinyuehe.core.data.repository.RoomTrackRepository
 import app.yinyuehe.core.data.local.mediastore.AndroidMediaStoreGateway
 import app.yinyuehe.core.data.local.mediastore.MediaStoreGateway
+import app.yinyuehe.core.data.playback.ProtoPlaybackSnapshotStore
 import app.yinyuehe.core.data.scan.DefaultLibraryScanner
 import app.yinyuehe.core.data.scan.LibraryScanner
 import dagger.Binds
@@ -41,4 +43,10 @@ abstract class DataModule {
   internal abstract fun bindMediaStoreGateway(
     gateway: AndroidMediaStoreGateway
   ): MediaStoreGateway
+
+  @Binds
+  @Singleton
+  internal abstract fun bindPlaybackSnapshotStore(
+    store: ProtoPlaybackSnapshotStore,
+  ): PlaybackSnapshotStore
 }
