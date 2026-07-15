@@ -35,6 +35,20 @@ data class PlaybackState(
   val canSkipToQueueItem: Boolean = false,
 )
 
+internal fun connectingPlaybackState(
+  previousState: PlaybackState = PlaybackState(),
+): PlaybackState =
+  PlaybackState(
+    connection = PlaybackConnection.CONNECTING,
+    connectionError = previousState.connectionError,
+  )
+
+internal fun exhaustedPlaybackState(): PlaybackState =
+  PlaybackState(
+    connection = PlaybackConnection.DISCONNECTED,
+    connectionError = PlaybackConnectionError.RETRIES_EXHAUSTED,
+  )
+
 internal data class PlaybackToggleDecision(
   val action: PlaybackToggleAction,
   val canDispatch: Boolean,

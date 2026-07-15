@@ -3,6 +3,7 @@ package app.yinyuehe.core.player
 import androidx.media3.common.C
 import androidx.media3.common.Player
 import app.yinyuehe.core.common.model.TrackId
+import app.yinyuehe.core.common.playback.PlaybackConnectionError
 import app.yinyuehe.core.common.playback.PlaybackError
 import app.yinyuehe.core.common.playback.PlaybackErrorType
 import app.yinyuehe.core.common.playback.PlaybackRepeatMode
@@ -13,6 +14,36 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PlayerSnapshotTest {
+  @Test
+  fun reconnectingStatePreservesConnectionErrorUntilRealSnapshot() {
+    val reconnecting = connectingPlaybackState(exhaustedPlaybackState())
+
+    assertEquals(PlaybackConnection.CONNECTING, reconnecting.connection)
+    assertEquals(PlaybackConnectionError.RETRIES_EXHAUSTED, reconnecting.connectionError)
+    assertFalse(reconnecting.canTogglePlayPause)
+    assertFalse(reconnecting.canChangeQueue)
+  }
+
+  @Test
+  fun exhaustedConnectionDisablesTransportAndConnectedSnapshotClearsConnectionError() {
+    val exhausted = exhaustedPlaybackState()
+    assertEquals(PlaybackConnection.DISCONNECTED, exhausted.connection)
+    assertEquals(PlaybackConnectionError.RETRIES_EXHAUSTED, exhausted.connectionError)
+    assertFalse(exhausted.canTogglePlayPause)
+    assertFalse(exhausted.canChangeQueue)
+
+    val connected =
+      snapshot(
+          playWhenReady = false,
+          isEnded = false,
+          canPlayPause = true,
+          canSeekToDefaultPosition = true,
+        )
+        .toPlaybackState()
+    assertEquals(PlaybackConnection.CONNECTED, connected.connection)
+    assertNull(connected.connectionError)
+  }
+
   @Test
   fun media3RepeatModes_mapCompletelyToDomainRepeatModes() {
     assertEquals(
