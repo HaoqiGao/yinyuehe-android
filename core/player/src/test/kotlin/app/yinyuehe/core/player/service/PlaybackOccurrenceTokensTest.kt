@@ -46,6 +46,37 @@ class PlaybackOccurrenceTokensTest {
   }
 
   @Test
+  fun wrongTypedOccurrenceTokenExtrasAreRejected() {
+    val tokens = PlaybackOccurrenceTokens()
+    val stringToken =
+      mediaItemWithExtras(Bundle().apply { putString(OCCURRENCE_TOKEN_KEY, "not-a-token") })
+    val intToken = mediaItemWithExtras(Bundle().apply { putInt(OCCURRENCE_TOKEN_KEY, 7) })
+
+    assertNull(tokens.read(stringToken))
+    assertNull(tokens.read(intToken))
+  }
+
+  @Test
+  fun decorateOverwritesAConflictingTokenWithoutMutatingTheSourceExtras() {
+    val next = AtomicLong(70)
+    val tokens = PlaybackOccurrenceTokens(next::incrementAndGet)
+    val source =
+      mediaItemWithExtras(
+        Bundle().apply {
+          putString(OCCURRENCE_TOKEN_KEY, "conflicting")
+          putString("existing", "kept")
+        }
+      )
+
+    val decorated = tokens.decorate(source)
+
+    assertEquals(PlaybackOccurrenceToken(71), tokens.read(decorated))
+    assertEquals("conflicting", source.mediaMetadata.extras?.getString(OCCURRENCE_TOKEN_KEY))
+    assertEquals("kept", source.mediaMetadata.extras?.getString("existing"))
+    assertNull(tokens.read(source))
+  }
+
+  @Test
   fun sessionExtrasCopiesBaseBeforeAddingThePrivatePersistenceFlag() {
     val base = Bundle().apply { putString("existing", "kept") }
 
@@ -58,3 +89,10 @@ class PlaybackOccurrenceTokensTest {
     assertTrue(PlaybackSessionProtocol.queuePersistenceLimited(extras))
   }
 }
+
+private fun mediaItemWithExtras(extras: Bundle): MediaItem =
+  MediaItem.Builder()
+    .setMediaMetadata(MediaMetadata.Builder().setExtras(extras).build())
+    .build()
+
+private const val OCCURRENCE_TOKEN_KEY = "app.yinyuehe.extra.OCCURRENCE_TOKEN"

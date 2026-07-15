@@ -19,10 +19,11 @@ internal class PlaybackOccurrenceTokens(
       .build()
   }
 
+  @Suppress("DEPRECATION")
   fun read(mediaItem: MediaItem): PlaybackOccurrenceToken? {
     val extras = mediaItem.mediaMetadata.extras ?: return null
-    if (!extras.containsKey(EXTRA_OCCURRENCE_TOKEN)) return null
-    return PlaybackOccurrenceToken(extras.getLong(EXTRA_OCCURRENCE_TOKEN))
+    val value = extras.get(EXTRA_OCCURRENCE_TOKEN)
+    return if (value is Long) PlaybackOccurrenceToken(value) else null
   }
 
   private companion object {
