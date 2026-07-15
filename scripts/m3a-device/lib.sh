@@ -216,7 +216,7 @@ force_stop_app() {
 
 start_playback_service() {
   local output normalized
-  output="$(adb_serial shell am start-foreground-service \
+  output="$(adb_serial shell am startservice \
     --user "$M3A_DEVICE_USER_ID" \
     -n "$M3A_SERVICE_COMPONENT" 2>&1)" \
     || die "unable to start PlaybackService"
