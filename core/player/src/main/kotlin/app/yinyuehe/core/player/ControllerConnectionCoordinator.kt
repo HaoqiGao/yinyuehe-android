@@ -300,10 +300,19 @@ internal class ControllerConnectionCoordinator<T : Any>(
   }
 
   suspend fun awaitConnected(startNewRoundIfExhausted: Boolean): T? {
-    currentController?.let { return it }
+    activeControllerOrNull()?.let { return it }
     if (!started) start()
     if (exhausted && startNewRoundIfExhausted && !closed) beginRound()
-    return roundResult.await()
+    var connectionRound = roundResult
+    while (true) {
+      val connectedController = connectionRound.await() ?: return null
+      if (isCurrentActiveConnection(connectionRound, connectedController)) {
+        return connectedController
+      }
+      val replacementRound = roundResult
+      if (replacementRound === connectionRound) return null
+      connectionRound = replacementRound
+    }
   }
 
   fun close() {
@@ -407,11 +416,12 @@ internal class ControllerConnectionCoordinator<T : Any>(
   }
 
   private fun continueAfterFailedAttempt(retryImmediately: Boolean) {
-    if (closed || roundResult.isCompleted) return
+    val connectionRound = roundResult
+    if (closed || connectionRound.isCompleted) return
     if (retryIndex >= retryDelaysMs.size) {
       exhausted = true
       onUpdate(ControllerConnectionUpdate.Exhausted)
-      roundResult.complete(null)
+      connectionRound.complete(null)
       return
     }
     if (retryImmediately) {
@@ -481,6 +491,24 @@ internal class ControllerConnectionCoordinator<T : Any>(
     onUpdate(ControllerConnectionUpdate.Connecting)
     continueAfterFailedAttempt(retryImmediately = true)
   }
+
+  private fun activeControllerOrNull(): T? {
+    val connectionRound = roundResult
+    if (!connectionRound.isCompleted) return null
+    val attempt = currentAttempt ?: return null
+    val controller = currentController ?: return null
+    return controller.takeIf {
+      roundResult === connectionRound && attempt.ownsActiveController(controller)
+    }
+  }
+
+  private fun isCurrentActiveConnection(
+    connectionRound: CompletableDeferred<T?>,
+    controller: T,
+  ): Boolean =
+    roundResult === connectionRound &&
+      currentController === controller &&
+      currentAttempt?.ownsActiveController(controller) == true
 }
 
 private fun <T : Any> completedNullResult(): CompletableDeferred<T?> =

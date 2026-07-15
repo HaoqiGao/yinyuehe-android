@@ -4,7 +4,10 @@ import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
 import com.google.common.util.concurrent.SettableFuture
 import java.util.concurrent.Executor
+import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
@@ -22,6 +25,136 @@ import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ControllerConnectionCoordinatorTest {
+  @Test
+  fun awaitStartedDuringConnectedUpdateFollowsReplacementController() = runTest {
+    val connector = RecordingConnector<Any>()
+    lateinit var coordinator: ControllerConnectionCoordinator<Any>
+    lateinit var publishingWaiter: Deferred<Any?>
+    lateinit var disconnectedDuringPublish: Any
+    coordinator =
+      ControllerConnectionCoordinator(
+        scope = backgroundScope,
+        callbackExecutor = MoreExecutors.directExecutor(),
+        connector = connector,
+        releaseConnected = {},
+        releasePending = {},
+        onUpdate = { update ->
+          if (
+            update is ControllerConnectionUpdate.Connected &&
+              update.controller === disconnectedDuringPublish
+          ) {
+            publishingWaiter =
+              async(Dispatchers.Unconfined) {
+                coordinator.awaitConnected(startNewRoundIfExhausted = false)
+              }
+            connector.disconnectCallbacks[0].invoke(update.controller)
+          }
+        },
+      )
+    coordinator.start()
+    disconnectedDuringPublish = Any()
+
+    connector.futures.single().set(disconnectedDuringPublish)
+    runCurrent()
+
+    assertFalse(publishingWaiter.isCompleted)
+    assertEquals(2, connector.futures.size)
+
+    val recovered = Any()
+    connector.futures[1].set(recovered)
+    runCurrent()
+
+    assertSame(recovered, publishingWaiter.await())
+  }
+
+  @Test
+  fun delayedAwaitContinuationFollowsRoundCreatedAfterLiveDisconnect() = runTest {
+    val connector = RecordingConnector<Any>()
+    val releasedConnected = mutableListOf<Any>()
+    val coordinator =
+      ControllerConnectionCoordinator(
+        scope = backgroundScope,
+        callbackExecutor = MoreExecutors.directExecutor(),
+        connector = connector,
+        releaseConnected = releasedConnected::add,
+        releasePending = {},
+        onUpdate = {},
+      )
+    coordinator.start()
+    val waiterDispatcher = QueuedCoroutineDispatcher()
+    val delayedWaiter =
+      async(waiterDispatcher) {
+        coordinator.awaitConnected(startNewRoundIfExhausted = false)
+      }
+    waiterDispatcher.runNext()
+
+    val disconnectedBeforeWaiterResumed = Any()
+    connector.futures.single().set(disconnectedBeforeWaiterResumed)
+    runCurrent()
+    assertEquals(1, waiterDispatcher.size)
+
+    connector.disconnectCallbacks.single().invoke(disconnectedBeforeWaiterResumed)
+    runCurrent()
+    assertEquals(listOf(disconnectedBeforeWaiterResumed), releasedConnected)
+    assertEquals(2, connector.futures.size)
+
+    waiterDispatcher.runNext()
+    assertFalse(delayedWaiter.isCompleted)
+
+    val recovered = Any()
+    connector.futures[1].set(recovered)
+    runCurrent()
+    waiterDispatcher.runAll()
+
+    assertSame(recovered, delayedWaiter.await())
+  }
+
+  @Test
+  fun exhaustedUpdateReentryCompletesOriginalRoundAndKeepsRestartedRoundWaiting() = runTest {
+    val connector = RecordingConnector<String>()
+    lateinit var coordinator: ControllerConnectionCoordinator<String>
+    lateinit var restartedWaiter: Deferred<String?>
+    coordinator =
+      ControllerConnectionCoordinator(
+        scope = backgroundScope,
+        callbackExecutor = MoreExecutors.directExecutor(),
+        connector = connector,
+        releaseConnected = {},
+        releasePending = {},
+        retryDelaysMs = listOf(250, 500, 1_000, 2_000),
+        onUpdate = { update ->
+          if (update == ControllerConnectionUpdate.Exhausted) {
+            restartedWaiter =
+              async(Dispatchers.Unconfined) {
+                coordinator.awaitConnected(startNewRoundIfExhausted = true)
+              }
+          }
+        },
+      )
+    coordinator.start()
+    val originalWaiter = async { coordinator.awaitConnected(startNewRoundIfExhausted = false) }
+    runCurrent()
+
+    val retryDelays = listOf(250L, 500L, 1_000L, 2_000L)
+    repeat(5) { index ->
+      connector.futures[index].setException(IllegalStateException("attempt-${index + 1}"))
+      runCurrent()
+      if (index < retryDelays.size) {
+        advanceTimeBy(retryDelays[index])
+        runCurrent()
+      }
+    }
+
+    assertEquals(6, connector.futures.size)
+    assertTrue(originalWaiter.isCompleted)
+    assertNull(originalWaiter.await())
+    assertFalse(restartedWaiter.isCompleted)
+
+    connector.futures[5].set("recovered")
+    runCurrent()
+    assertEquals("recovered", restartedWaiter.await())
+  }
+
   @Test
   fun disconnectDuringConnectedUpdateDoesNotCompleteDeadControllerOrReplaceRound() = runTest {
     val connector = RecordingConnector<Any>()
@@ -783,6 +916,25 @@ private class QueuedExecutor : Executor {
 
   override fun execute(command: Runnable) {
     commands.addLast(command)
+  }
+
+  fun runNext() {
+    commands.removeFirst().run()
+  }
+
+  fun runAll() {
+    while (commands.isNotEmpty()) runNext()
+  }
+}
+
+private class QueuedCoroutineDispatcher : CoroutineDispatcher() {
+  private val commands = ArrayDeque<Runnable>()
+
+  val size: Int
+    get() = commands.size
+
+  override fun dispatch(context: CoroutineContext, block: Runnable) {
+    commands.addLast(block)
   }
 
   fun runNext() {
