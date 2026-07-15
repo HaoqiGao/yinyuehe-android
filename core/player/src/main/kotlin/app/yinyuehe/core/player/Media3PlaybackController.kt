@@ -2,16 +2,22 @@ package app.yinyuehe.core.player
 
 import android.content.ComponentName
 import android.content.Context
+import android.os.Bundle
 import android.os.Looper
 import android.util.Log
 import androidx.core.content.ContextCompat
 import androidx.media3.common.C
 import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
+import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionError
+import androidx.media3.session.SessionResult
 import androidx.media3.session.SessionToken
 import app.yinyuehe.core.common.analytics.PlaybackEventRecorder
 import app.yinyuehe.core.common.model.Track
 import app.yinyuehe.core.common.model.TrackId
+import app.yinyuehe.core.common.playback.PlaybackNotice
 import app.yinyuehe.core.common.playback.PlaybackRepeatMode
 import app.yinyuehe.core.player.service.PlaybackService
 import com.google.common.util.concurrent.Futures
@@ -24,8 +30,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.guava.await
 import kotlinx.coroutines.isActive
@@ -38,6 +48,12 @@ class Media3PlaybackController @Inject constructor(
 ) : PlaybackController {
   private val _state = MutableStateFlow(PlaybackState())
   override val state: StateFlow<PlaybackState> = _state.asStateFlow()
+  private val _notices =
+    MutableSharedFlow<PlaybackNotice>(
+      extraBufferCapacity = 16,
+      onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+  override val notices: Flow<PlaybackNotice> = _notices.asSharedFlow()
 
   private val mainExecutor = ContextCompat.getMainExecutor(context)
   private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -73,6 +89,21 @@ class Media3PlaybackController @Inject constructor(
 
   private val controllerListener =
     object : MediaController.Listener {
+      @UnstableApi
+      override fun onCustomCommand(
+        controller: MediaController,
+        command: SessionCommand,
+        args: Bundle,
+      ): ListenableFuture<SessionResult> {
+        val notice = PlaybackSessionProtocol.decode(command, args)
+        return if (notice != null && this@Media3PlaybackController.controller === controller) {
+          _notices.tryEmit(notice)
+          Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+        } else {
+          Futures.immediateFuture(SessionResult(SessionError.ERROR_NOT_SUPPORTED))
+        }
+      }
+
       override fun onDisconnected(disconnectedController: MediaController) {
         applicationScope.launch {
           if (controller !== disconnectedController) return@launch
@@ -279,6 +310,7 @@ private fun MediaController.snapshot(connection: PlaybackConnection): PlayerSnap
     canSetShuffle = isCommandAvailable(Player.COMMAND_SET_SHUFFLE_MODE),
     canChangeQueue = isCommandAvailable(Player.COMMAND_CHANGE_MEDIA_ITEMS),
     canSkipToQueueItem = isCommandAvailable(Player.COMMAND_SEEK_TO_MEDIA_ITEM),
+    playerErrorCode = playerError?.errorCode,
   )
 }
 

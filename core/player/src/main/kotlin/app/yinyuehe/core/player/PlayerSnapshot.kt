@@ -28,6 +28,7 @@ internal data class PlayerSnapshot(
   val canSetShuffle: Boolean,
   val canChangeQueue: Boolean,
   val canSkipToQueueItem: Boolean,
+  val playerErrorCode: Int? = null,
 )
 
 internal fun PlayerSnapshot.toPlaybackState(): PlaybackState {
@@ -46,9 +47,10 @@ internal fun PlayerSnapshot.toPlaybackState(): PlaybackState {
       canPrepare = canPrepare,
       canSeekToDefaultPosition = canSeekToDefaultPosition,
     )
+  val mappedCurrentTrackId = currentMediaId?.takeIf(String::isNotBlank)?.let(::TrackId)
   return PlaybackState(
     connection = connection,
-    currentTrackId = currentMediaId?.takeIf(String::isNotBlank)?.let(::TrackId),
+    currentTrackId = mappedCurrentTrackId,
     currentIndex = mappedCurrentIndex,
     isPlaying = isPlaying,
     toggleAction = toggleDecision.action,
@@ -58,6 +60,7 @@ internal fun PlayerSnapshot.toPlaybackState(): PlaybackState {
     queueTrackIds = indexedTrackIds.map { (_, trackId) -> trackId },
     shuffleEnabled = shuffleEnabled,
     repeatMode = repeatMode,
+    playbackError = playerErrorCode?.let { code -> playbackError(code, mappedCurrentTrackId) },
     queuePersistenceLimited = queuePersistenceLimited,
     canSeek = canSeek,
     canPrevious = canPrevious,

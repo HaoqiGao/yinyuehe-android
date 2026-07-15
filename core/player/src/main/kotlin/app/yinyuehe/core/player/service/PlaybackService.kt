@@ -39,6 +39,8 @@ class PlaybackService : MediaLibraryService() {
   private var restoreCoordinator: PlaybackRestoreCoordinator? = null
   private var persistenceCoordinator: PlaybackPersistenceCoordinator? = null
   private var persistenceListener: Player.Listener? = null
+  private var failureCoordinator: PlaybackFailureCoordinator? = null
+  private var failureListener: Player.Listener? = null
 
   override fun onCreate() {
     super.onCreate()
@@ -90,9 +92,37 @@ class PlaybackService : MediaLibraryService() {
     this.persistenceListener = persistenceListener
     this.persistenceCoordinator = persistence
 
-    val callback = PlaybackLibrarySessionCallback(tokens, gate)
+    val callback =
+      PlaybackLibrarySessionCallback(
+        tokens,
+        gate,
+        onUserRetry = { failureCoordinator?.onUserRetry() },
+      )
     session = MediaLibrarySession.Builder(this, player, callback).build()
     session?.setSessionExtras(PlaybackSessionProtocol.sessionExtras(false))
+
+    val failureCoordinator =
+      PlaybackFailureCoordinator(
+        player = player,
+        tokens = tokens,
+        policy = PlaybackFailurePolicy(),
+        scope = serviceScope,
+        onNotice = { notice ->
+          val encoded = PlaybackSessionProtocol.encode(notice)
+          session
+            ?.connectedControllers
+            ?.filter { controller ->
+              controller.packageName == packageName && controller.uid == applicationInfo.uid
+            }
+            ?.forEach { controller ->
+              session?.sendCustomCommand(controller, encoded.command, encoded.extras)
+            }
+        },
+      )
+    val failureListener = PlaybackFailurePlayerListener(failureCoordinator)
+    player.addListener(failureListener)
+    this.failureCoordinator = failureCoordinator
+    this.failureListener = failureListener
 
     restoreCoordinator =
       PlaybackRestoreCoordinator(
@@ -172,6 +202,10 @@ class PlaybackService : MediaLibraryService() {
     persistenceListener = null
     persistenceCoordinator?.close()
     persistenceCoordinator = null
+    failureListener?.let { listener -> player?.removeListener(listener) }
+    failureListener = null
+    failureCoordinator?.close()
+    failureCoordinator = null
     serviceJob.cancel()
     playerListener?.let { listener -> player?.removeListener(listener) }
     session?.release()

@@ -442,6 +442,10 @@ private class RecordingPlaybackController : PlaybackController {
 
   private val mutableState = kotlinx.coroutines.flow.MutableStateFlow(PlaybackState())
   override val state = mutableState
+  override val notices =
+    kotlinx.coroutines.flow.MutableSharedFlow<
+      app.yinyuehe.core.common.playback.PlaybackNotice
+    >(extraBufferCapacity = 8)
   val playRequests = mutableListOf<PlayRequest>()
   val seekPositions = mutableListOf<Long>()
   val queuedTracks = mutableListOf<Track>()

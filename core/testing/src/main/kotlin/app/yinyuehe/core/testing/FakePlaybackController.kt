@@ -1,9 +1,12 @@
 package app.yinyuehe.core.testing
 
 import app.yinyuehe.core.common.model.Track
+import app.yinyuehe.core.common.playback.PlaybackNotice
 import app.yinyuehe.core.common.playback.PlaybackRepeatMode
 import app.yinyuehe.core.player.PlaybackController
 import app.yinyuehe.core.player.PlaybackState
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -12,6 +15,8 @@ class FakePlaybackController : PlaybackController {
 
   private val mutableState = MutableStateFlow(PlaybackState())
   override val state: StateFlow<PlaybackState> = mutableState
+  private val mutableNotices = MutableSharedFlow<PlaybackNotice>(extraBufferCapacity = 8)
+  override val notices: Flow<PlaybackNotice> = mutableNotices
   val playRequests = mutableListOf<PlayRequest>()
   val seekPositions = mutableListOf<Long>()
   val queuedTracks = mutableListOf<Track>()
