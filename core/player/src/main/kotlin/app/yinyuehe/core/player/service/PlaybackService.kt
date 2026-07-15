@@ -5,28 +5,40 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
-import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaLibraryService.MediaLibrarySession
 import androidx.media3.session.MediaSession
 import app.yinyuehe.core.common.analytics.PlaybackEventRecorder
 import app.yinyuehe.core.common.analytics.PlaybackHistoryRecorder
-import com.google.common.util.concurrent.Futures
-import com.google.common.util.concurrent.ListenableFuture
+import app.yinyuehe.core.common.playback.PlaybackQueueResolver
+import app.yinyuehe.core.common.playback.PlaybackSnapshotStore
+import app.yinyuehe.core.player.PlaybackSessionProtocol
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 
 @AndroidEntryPoint
 class PlaybackService : MediaLibraryService() {
   @Inject lateinit var playbackEventRecorder: PlaybackEventRecorder
   @Inject lateinit var playbackHistoryRecorder: PlaybackHistoryRecorder
+  @Inject lateinit var playbackSnapshotStore: PlaybackSnapshotStore
+  @Inject lateinit var playbackQueueResolver: PlaybackQueueResolver
+  @Inject
+  lateinit var playbackRestoreBarriers: Set<@JvmSuppressWildcards PlaybackRestoreBarrier>
 
   private val eventTracker = PlaybackServiceEventTracker()
+  private val serviceJob = SupervisorJob()
+  private val serviceScope = CoroutineScope(serviceJob + Dispatchers.Main.immediate)
   private var recordingQueue: PlaybackServiceRecordingQueue? = null
   private var session: MediaLibrarySession? = null
   private var player: ExoPlayer? = null
   private var playerListener: Player.Listener? = null
+  private var restoreCoordinator: PlaybackRestoreCoordinator? = null
+  private var persistenceCoordinator: PlaybackPersistenceCoordinator? = null
+  private var persistenceListener: Player.Listener? = null
 
   override fun onCreate() {
     super.onCreate()
@@ -49,6 +61,71 @@ class PlaybackService : MediaLibraryService() {
         )
         .setHandleAudioBecomingNoisy(true)
         .build()
+
+    val applicationController = ControllerIdentity(packageName, applicationInfo.uid)
+    val gate = RestorePersistenceGate(applicationController)
+    val tokens = PlaybackOccurrenceTokens()
+    val writer =
+      PlaybackSnapshotWriter(
+        snapshotStore = playbackSnapshotStore,
+        dispatcher = Dispatchers.IO,
+        onFailure = { error ->
+          Log.w(TAG, "Playback snapshot write failed: ${error::class.java.simpleName}")
+        },
+      )
+    val persistence =
+      PlaybackPersistenceCoordinator(
+        gate = gate,
+        writer = writer,
+        scope = serviceScope,
+        capture = player::capturePlaybackSnapshot,
+      )
+    val persistenceListener =
+      PlaybackPersistencePlayerListener(player, tokens, gate, persistence) {
+        session?.setSessionExtras(
+          PlaybackSessionProtocol.sessionExtras(gate.queuePersistenceLimited)
+        )
+      }
+    player.addListener(persistenceListener)
+    this.persistenceListener = persistenceListener
+    this.persistenceCoordinator = persistence
+
+    val callback = PlaybackLibrarySessionCallback(tokens, gate)
+    session = MediaLibrarySession.Builder(this, player, callback).build()
+    session?.setSessionExtras(PlaybackSessionProtocol.sessionExtras(false))
+
+    restoreCoordinator =
+      PlaybackRestoreCoordinator(
+          snapshotStore = playbackSnapshotStore,
+          queueResolver = playbackQueueResolver,
+          gate = gate,
+          player = Media3RestorablePlayer(player, tokens),
+          scope = serviceScope,
+          ioDispatcher = Dispatchers.IO,
+          onNormalizedSnapshot = { snapshot ->
+            writer.submit(snapshot, SnapshotWriteUrgency.IMMEDIATE)
+          },
+          onGateChanged = {
+            session?.setSessionExtras(
+              PlaybackSessionProtocol.sessionExtras(gate.queuePersistenceLimited)
+            )
+          },
+          onFailure = { error ->
+            Log.w(TAG, "Playback restore failed: ${error::class.java.simpleName}")
+          },
+          beforeRead = {
+            playbackRestoreBarriers.forEach { barrier ->
+              barrier.awaitPhase(PlaybackRestoreBarrierPhase.BEFORE_READ)
+            }
+          },
+          beforeApply = {
+            playbackRestoreBarriers.forEach { barrier ->
+              barrier.awaitPhase(PlaybackRestoreBarrierPhase.BEFORE_APPLY)
+            }
+          },
+        )
+        .also(PlaybackRestoreCoordinator::start)
+
     val listener =
       object : Player.Listener {
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
@@ -77,28 +154,8 @@ class PlaybackService : MediaLibraryService() {
         }
       }
     player.addListener(listener)
-    val callback =
-      object : MediaLibrarySession.Callback {
-        @UnstableApi
-        override fun onConnect(
-          mediaSession: MediaSession,
-          controller: MediaSession.ControllerInfo,
-        ): MediaSession.ConnectionResult =
-          if (controller.isTrusted) {
-            super.onConnect(mediaSession, controller)
-          } else {
-            MediaSession.ConnectionResult.reject()
-          }
-
-        override fun onAddMediaItems(
-          mediaSession: MediaSession,
-          controller: MediaSession.ControllerInfo,
-          mediaItems: List<MediaItem>,
-        ): ListenableFuture<List<MediaItem>> = Futures.immediateFuture(mediaItems)
-      }
     this.player = player
     playerListener = listener
-    session = MediaLibrarySession.Builder(this, player, callback).build()
   }
 
   private fun recordUpdate(update: PlaybackServiceUpdate?) {
@@ -109,6 +166,13 @@ class PlaybackService : MediaLibraryService() {
     session
 
   override fun onDestroy() {
+    restoreCoordinator?.cancel()
+    restoreCoordinator = null
+    persistenceListener?.let { listener -> player?.removeListener(listener) }
+    persistenceListener = null
+    persistenceCoordinator?.close()
+    persistenceCoordinator = null
+    serviceJob.cancel()
     playerListener?.let { listener -> player?.removeListener(listener) }
     session?.release()
     player?.release()

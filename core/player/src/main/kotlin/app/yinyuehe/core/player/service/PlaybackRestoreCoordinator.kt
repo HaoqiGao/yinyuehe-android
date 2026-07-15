@@ -9,6 +9,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -22,6 +24,8 @@ internal class PlaybackRestoreCoordinator(
   private val onNormalizedSnapshot: (PlaybackSnapshot) -> Unit,
   private val onGateChanged: () -> Unit,
   private val onFailure: (Exception) -> Unit,
+  private val beforeRead: suspend () -> Unit = {},
+  private val beforeApply: suspend () -> Unit = {},
 ) {
   private var restoreJob: Job? = null
 
@@ -31,6 +35,15 @@ internal class PlaybackRestoreCoordinator(
     return scope
       .launch {
         try {
+          beforeRead()
+          currentCoroutineContext().ensureActive()
+          if (
+            gate.status != RestoreGateStatus.RESTORE_PENDING ||
+              gate.mutationGeneration != expectedGeneration ||
+              !player.isQueueEmpty
+          ) {
+            return@launch
+          }
           when (val read = withContext(ioDispatcher) { snapshotStore.read() }) {
             is PlaybackSnapshotReadResult.IncompatibleVersion -> {
               if (gate.finishIncompatible(expectedGeneration)) onGateChanged()
@@ -62,6 +75,8 @@ internal class PlaybackRestoreCoordinator(
   ) {
     val resolution = withContext(ioDispatcher) { queueResolver.resolve(snapshot.mediaIds) }
     val plan = buildPlaybackRestorePlan(snapshot, resolution)
+    beforeApply()
+    currentCoroutineContext().ensureActive()
     if (!gate.tryBeginRestoreApply(expectedGeneration, player.isQueueEmpty)) return
 
     try {
