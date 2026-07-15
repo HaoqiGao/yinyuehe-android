@@ -72,6 +72,24 @@ class PlaybackSnapshotTest {
   }
 
   @Test
+  fun mediaIdsGetter_exposesAnUnmodifiableList() {
+    val first = TrackId("demo:morning-pulse")
+    val second = TrackId("demo:city-walk")
+    val snapshot = PlaybackSnapshot(mediaIds = listOf(first, second), currentIndex = 1)
+    val expected = PlaybackSnapshot(mediaIds = listOf(first, second), currentIndex = 1)
+    val initialHashCode = snapshot.hashCode()
+    @Suppress("UNCHECKED_CAST")
+    val mutableView = snapshot.mediaIds as MutableList<TrackId>
+
+    assertThrows(UnsupportedOperationException::class.java) { mutableView.clear() }
+
+    assertEquals(listOf(first, second), snapshot.mediaIds)
+    assertEquals(expected, snapshot)
+    assertEquals(initialHashCode, snapshot.hashCode())
+    assertEquals(true, snapshot.currentIndex in snapshot.mediaIds.indices)
+  }
+
+  @Test
   fun emptyQueue_rejectsAnyCurrentIndexOtherThanMinusOne() {
     assertThrows(IllegalArgumentException::class.java) {
       PlaybackSnapshot(mediaIds = emptyList(), currentIndex = 0)
