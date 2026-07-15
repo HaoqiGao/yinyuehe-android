@@ -32,15 +32,29 @@ internal class Media3RestorablePlayer(
 }
 
 internal fun Player.capturePlaybackSnapshot(): PlaybackSnapshot {
+  val rawIds = List(mediaItemCount) { index -> getMediaItemAt(index).mediaId }
+  if (rawIds.isEmpty()) return PlaybackSnapshot.empty()
+  val originalCurrentIndex = currentMediaItemIndex.coerceIn(rawIds.indices)
   val indexedIds =
-    List(mediaItemCount) { index -> index to getMediaItemAt(index).mediaId }
+    rawIds.mapIndexed { index, mediaId -> index to mediaId }
       .filter { (_, mediaId) -> mediaId.isNotBlank() }
-  val mappedIndex = indexedIds.indexOfFirst { (index) -> index == currentMediaItemIndex }
   if (indexedIds.isEmpty()) return PlaybackSnapshot.empty()
+  val currentIdSurvives = rawIds[originalCurrentIndex].isNotBlank()
+  val normalizedCurrentIndex =
+    if (currentIdSurvives) {
+      indexedIds.indexOfFirst { (index) -> index == originalCurrentIndex }
+    } else {
+      val successor = indexedIds.indexOfFirst { (index) -> index > originalCurrentIndex }
+      if (successor >= 0) {
+        successor
+      } else {
+        indexedIds.indexOfLast { (index) -> index < originalCurrentIndex }
+      }
+    }
   return PlaybackSnapshot(
     mediaIds = indexedIds.map { (_, mediaId) -> TrackId(mediaId) },
-    currentIndex = mappedIndex.coerceAtLeast(0),
-    positionMs = currentPosition.coerceAtLeast(0),
+    currentIndex = normalizedCurrentIndex,
+    positionMs = if (currentIdSurvives) currentPosition.coerceAtLeast(0) else 0,
     shuffleEnabled = shuffleModeEnabled,
     repeatMode = repeatMode.toDomainRepeatMode(),
   )

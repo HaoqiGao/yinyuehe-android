@@ -73,6 +73,45 @@ class Media3PlaybackBridgeTest {
     assertEquals(PlaybackOccurrenceToken(1), bridge.tokens.read(mediaItem))
     assertFalse(recording.playWasCalled)
   }
+
+  @Test
+  fun captureBlankCurrentIdSelectsSuccessorAndResetsPosition() {
+    val player =
+      SnapshotBridgePlayer(
+          mediaIds = listOf("demo:a", " ", "demo:b"),
+          currentIndex = 1,
+          positionMs = 777,
+          shuffleEnabled = true,
+          repeatMode = Player.REPEAT_MODE_ALL,
+        )
+        .player
+
+    assertEquals(
+      PlaybackSnapshot(
+        mediaIds = listOf(TrackId("demo:a"), TrackId("demo:b")),
+        currentIndex = 1,
+        positionMs = 0,
+        shuffleEnabled = true,
+        repeatMode = PlaybackRepeatMode.ALL,
+      ),
+      player.capturePlaybackSnapshot(),
+    )
+  }
+
+  @Test
+  fun captureAllBlankIdsReturnsCanonicalEmptySnapshot() {
+    val player =
+      SnapshotBridgePlayer(
+          mediaIds = listOf("", " "),
+          currentIndex = 1,
+          positionMs = 777,
+          shuffleEnabled = true,
+          repeatMode = Player.REPEAT_MODE_ONE,
+        )
+        .player
+
+    assertEquals(PlaybackSnapshot.empty(), player.capturePlaybackSnapshot())
+  }
 }
 
 private data class BridgeCall(val name: String, val arguments: List<Any?>)
@@ -97,6 +136,31 @@ private class RecordingBridgePlayer {
           calls += BridgeCall(method.name, args?.toList().orEmpty())
           method.defaultBridgeValue()
         }
+      }
+    } as Player
+}
+
+private class SnapshotBridgePlayer(
+  mediaIds: List<String>,
+  currentIndex: Int,
+  positionMs: Long,
+  shuffleEnabled: Boolean,
+  repeatMode: Int,
+) {
+  private val items = mediaIds.map { mediaId -> MediaItem.Builder().setMediaId(mediaId).build() }
+  val player =
+    Proxy.newProxyInstance(Player::class.java.classLoader, arrayOf(Player::class.java)) { _, method, args ->
+      when (method.name) {
+        "getMediaItemCount" -> items.size
+        "getMediaItemAt" -> items[args?.single() as Int]
+        "getCurrentMediaItemIndex" -> currentIndex
+        "getCurrentPosition" -> positionMs
+        "getShuffleModeEnabled" -> shuffleEnabled
+        "getRepeatMode" -> repeatMode
+        "hashCode" -> System.identityHashCode(this)
+        "equals" -> false
+        "toString" -> "SnapshotBridgePlayer"
+        else -> method.defaultBridgeValue()
       }
     } as Player
 }
