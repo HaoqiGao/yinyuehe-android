@@ -10,6 +10,53 @@ class RestorePersistenceGateTest {
   private val app = ControllerIdentity("app.yinyuehe", 10_001)
 
   @Test
+  fun confirmedTimeline_defensivelySnapshotsMutableFingerprintLists() {
+    val gate = RestorePersistenceGate(app)
+    val mutable = mutableFingerprint()
+    assertTrue(gate.onConfirmedTimeline(mutable.fingerprint))
+
+    mutable.mutateAfterSave()
+
+    assertFalse(gate.onConfirmedTimeline(originalFingerprint()))
+    assertEquals(1L, gate.mutationGeneration)
+    assertEquals(RestoreGateStatus.SUPERSEDED, gate.status)
+  }
+
+  @Test
+  fun appliedRestore_defensivelySnapshotsMutableFingerprintLists() {
+    val gate = RestorePersistenceGate(app)
+    val mutable = mutableFingerprint()
+    assertTrue(gate.tryBeginRestoreApply(expectedGeneration = 0, playerIsEmpty = true))
+    assertTrue(gate.finishApplied(expectedGeneration = 0, appliedFingerprint = mutable.fingerprint))
+
+    mutable.mutateAfterSave()
+
+    assertFalse(gate.onConfirmedTimeline(originalFingerprint()))
+    assertEquals(0L, gate.mutationGeneration)
+    assertEquals(RestoreGateStatus.APPLIED, gate.status)
+  }
+
+  @Test
+  fun permissionFailure_defensivelySnapshotsMutableAppliedFingerprintLists() {
+    val gate = RestorePersistenceGate(app)
+    val mutable = mutableFingerprint()
+    assertTrue(gate.tryBeginRestoreApply(expectedGeneration = 0, playerIsEmpty = true))
+    assertTrue(
+      gate.finishFailed(
+        expectedGeneration = 0,
+        reason = RestoreFailureReason.PERMISSION_DENIED,
+        appliedFingerprint = mutable.fingerprint,
+      )
+    )
+
+    mutable.mutateAfterSave()
+
+    assertFalse(gate.onConfirmedTimeline(originalFingerprint()))
+    assertEquals(0L, gate.mutationGeneration)
+    assertEquals(RestoreGateStatus.FAILED, gate.status)
+  }
+
+  @Test
   fun initialEmptyTimelineAndDestroyCannotOpenTheGate() {
     val gate = RestorePersistenceGate(app)
 
@@ -241,3 +288,27 @@ class RestorePersistenceGateTest {
 
 private fun fingerprint(keys: List<String>, ids: List<String>, index: Int) =
   PlayerQueueFingerprint(keys, ids, index)
+
+private fun mutableFingerprint(): MutableFingerprint {
+  val occurrenceKeys = mutableListOf("stable-occurrence")
+  val mediaIds = mutableListOf("demo:stable")
+  return MutableFingerprint(
+    occurrenceKeys = occurrenceKeys,
+    mediaIds = mediaIds,
+    fingerprint = fingerprint(occurrenceKeys, mediaIds, index = 0),
+  )
+}
+
+private fun originalFingerprint() =
+  fingerprint(listOf("stable-occurrence"), listOf("demo:stable"), index = 0)
+
+private data class MutableFingerprint(
+  val occurrenceKeys: MutableList<String>,
+  val mediaIds: MutableList<String>,
+  val fingerprint: PlayerQueueFingerprint,
+) {
+  fun mutateAfterSave() {
+    occurrenceKeys[0] = "mutated-occurrence"
+    mediaIds[0] = "demo:mutated"
+  }
+}

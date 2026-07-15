@@ -19,10 +19,17 @@ internal fun buildPlaybackRestorePlan(
   snapshot: PlaybackSnapshot,
   resolution: PlaybackQueueResolution,
 ): PlaybackRestorePlan {
-  val resolved =
-    resolution.items
-      .filterIsInstance<PlaybackQueueItemResolution.Resolved>()
-      .sortedBy(PlaybackQueueItemResolution.Resolved::originalIndex)
+  require(resolution.items.size == snapshot.mediaIds.size) {
+    "Queue resolution size must match the playback snapshot"
+  }
+  require(
+    resolution.items.indices.all { index ->
+      resolution.items[index].trackId == snapshot.mediaIds[index]
+    }
+  ) {
+    "Queue resolution identities must match every playback snapshot occurrence"
+  }
+  val resolved = resolution.items.filterIsInstance<PlaybackQueueItemResolution.Resolved>()
   if (resolved.isEmpty()) {
     val empty = PlaybackSnapshot.empty()
     return PlaybackRestorePlan(

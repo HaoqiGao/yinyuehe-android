@@ -8,9 +8,32 @@ import app.yinyuehe.core.common.playback.PlaybackQueueResolution
 import app.yinyuehe.core.common.playback.PlaybackRepeatMode
 import app.yinyuehe.core.common.playback.PlaybackSnapshot
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class PlaybackRestorePlanTest {
+  @Test
+  fun resolutionSizeMismatch_isRejected() {
+    val stored = track("demo:stored", 1_000)
+    val snapshot = PlaybackSnapshot(mediaIds = listOf(stored.id), currentIndex = 0)
+
+    assertThrows(IllegalArgumentException::class.java) {
+      buildPlaybackRestorePlan(snapshot, PlaybackQueueResolution(emptyList()))
+    }
+  }
+
+  @Test
+  fun resolutionTrackIdMismatch_isRejected() {
+    val stored = track("demo:stored", 1_000)
+    val different = track("demo:different", 1_000)
+    val snapshot = PlaybackSnapshot(mediaIds = listOf(stored.id), currentIndex = 0)
+    val resolution = PlaybackQueueResolution(listOf(resolved(0, different)))
+
+    assertThrows(IllegalArgumentException::class.java) {
+      buildPlaybackRestorePlan(snapshot, resolution)
+    }
+  }
+
   @Test
   fun currentOccurrenceSurvives_preservesDuplicatesAndClampsKnownDuration() {
     val one = track("local:one", 1_000)

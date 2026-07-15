@@ -33,19 +33,29 @@ class PlaybackRestoreCoordinatorTest {
   fun slowReadCannotOverwriteConfirmedUserQueue() = runTest {
     val read = CompletableDeferred<PlaybackSnapshotReadResult>()
     val store = SuspendingSnapshotStore(read)
+    val stored = coordinatorTrack("demo:stored")
     val gate = gate()
     val player = RecordingRestorablePlayer()
-    val coordinator = coordinator(store, FixedResolver(), gate, player)
+    val failures = mutableListOf<Exception>()
+    val coordinator =
+      coordinator(
+        store,
+        FixedResolver(resolutionOf(stored)),
+        gate,
+        player,
+        failures = failures,
+      )
     coordinator.start()
     runCurrent()
 
     gate.onConfirmedTimeline(
       PlayerQueueFingerprint(listOf("user"), listOf("demo:user"), currentIndex = 0)
     )
-    read.complete(usableSnapshot("demo:stored"))
+    read.complete(usableSnapshot(stored.id.value))
     runCurrent()
 
     assertTrue(player.plans.isEmpty())
+    assertTrue(failures.isEmpty())
     assertEquals(RestoreGateStatus.SUPERSEDED, gate.status)
     assertEquals(1L, gate.mutationGeneration)
   }

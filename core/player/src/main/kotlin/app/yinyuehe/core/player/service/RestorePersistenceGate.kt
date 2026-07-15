@@ -71,11 +71,11 @@ internal class RestorePersistenceGate(
 
   fun onConfirmedTimeline(fingerprint: PlayerQueueFingerprint): Boolean {
     if (fingerprint.occurrenceKeys == lastFingerprint.occurrenceKeys) {
-      lastFingerprint = fingerprint
+      lastFingerprint = fingerprint.toDefensiveSnapshot()
       return false
     }
     if (isApplyingRestore) {
-      lastFingerprint = fingerprint
+      lastFingerprint = fingerprint.toDefensiveSnapshot()
       return false
     }
 
@@ -88,7 +88,7 @@ internal class RestorePersistenceGate(
         replacement.expectedMediaIds == fingerprint.mediaIds &&
         replacement.startIndex == fingerprint.currentIndex
     mutationGeneration += 1
-    lastFingerprint = fingerprint
+    lastFingerprint = fingerprint.toDefensiveSnapshot()
     pendingReplacement = null
 
     val opened =
@@ -127,7 +127,7 @@ internal class RestorePersistenceGate(
     isApplyingRestore = false
     status = RestoreGateStatus.APPLIED
     failureReason = null
-    lastFingerprint = appliedFingerprint
+    lastFingerprint = appliedFingerprint.toDefensiveSnapshot()
     pendingReplacement = null
     return true
   }
@@ -148,7 +148,7 @@ internal class RestorePersistenceGate(
     isApplyingRestore = false
     status = RestoreGateStatus.FAILED
     failureReason = reason
-    lastFingerprint = appliedFingerprint
+    lastFingerprint = appliedFingerprint.toDefensiveSnapshot()
     pendingReplacement = null
     return true
   }
@@ -164,3 +164,9 @@ internal class RestorePersistenceGate(
   private fun isCurrentApply(expectedGeneration: Long): Boolean =
     isApplyingRestore && isPendingGeneration(expectedGeneration)
 }
+
+private fun PlayerQueueFingerprint.toDefensiveSnapshot(): PlayerQueueFingerprint =
+  copy(
+    occurrenceKeys = occurrenceKeys.toList(),
+    mediaIds = mediaIds.toList(),
+  )
