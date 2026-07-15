@@ -1,6 +1,9 @@
 package app.yinyuehe.core.player
 
 import app.yinyuehe.core.common.model.TrackId
+import app.yinyuehe.core.common.playback.PlaybackConnectionError
+import app.yinyuehe.core.common.playback.PlaybackError
+import app.yinyuehe.core.common.playback.PlaybackRepeatMode
 
 enum class PlaybackConnection { CONNECTING, CONNECTED, DISCONNECTED }
 
@@ -19,9 +22,17 @@ data class PlaybackState(
   val durationMs: Long = 0,
   val queueTrackIds: List<TrackId> = emptyList(),
   val shuffleEnabled: Boolean = false,
+  val repeatMode: PlaybackRepeatMode = PlaybackRepeatMode.OFF,
+  val playbackError: PlaybackError? = null,
+  val connectionError: PlaybackConnectionError? = null,
+  val queuePersistenceLimited: Boolean = false,
   val canSeek: Boolean = false,
   val canPrevious: Boolean = false,
   val canNext: Boolean = false,
+  val canSetRepeatMode: Boolean = false,
+  val canSetShuffle: Boolean = false,
+  val canChangeQueue: Boolean = false,
+  val canSkipToQueueItem: Boolean = false,
 )
 
 internal data class PlaybackToggleDecision(

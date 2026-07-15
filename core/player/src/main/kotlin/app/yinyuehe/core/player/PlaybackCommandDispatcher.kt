@@ -2,6 +2,7 @@ package app.yinyuehe.core.player
 
 import androidx.media3.common.Player
 import app.yinyuehe.core.common.model.Track
+import app.yinyuehe.core.common.playback.PlaybackRepeatMode
 
 internal class PlaybackCommandDispatcher(private val player: Player) {
   fun canPlayQueue(): Boolean = REQUIRED_PLAY_COMMANDS.all(player::isCommandAvailable)
@@ -81,6 +82,24 @@ internal class PlaybackCommandDispatcher(private val player: Player) {
   fun setShuffleEnabled(enabled: Boolean) {
     if (!player.isCommandAvailable(Player.COMMAND_SET_SHUFFLE_MODE)) return
     player.shuffleModeEnabled = enabled
+  }
+
+  fun setRepeatMode(mode: PlaybackRepeatMode) {
+    if (!player.isCommandAvailable(Player.COMMAND_SET_REPEAT_MODE)) return
+    player.repeatMode =
+      when (mode) {
+        PlaybackRepeatMode.OFF -> Player.REPEAT_MODE_OFF
+        PlaybackRepeatMode.ALL -> Player.REPEAT_MODE_ALL
+        PlaybackRepeatMode.ONE -> Player.REPEAT_MODE_ONE
+      }
+  }
+
+  fun moveQueueItem(fromIndex: Int, toIndex: Int) {
+    if (!player.isCommandAvailable(Player.COMMAND_CHANGE_MEDIA_ITEMS)) return
+    if (fromIndex !in 0 until player.mediaItemCount) return
+    if (toIndex !in 0 until player.mediaItemCount) return
+    if (fromIndex == toIndex) return
+    player.moveMediaItem(fromIndex, toIndex)
   }
 
   private companion object {

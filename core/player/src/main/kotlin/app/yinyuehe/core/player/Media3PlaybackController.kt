@@ -12,6 +12,7 @@ import androidx.media3.session.SessionToken
 import app.yinyuehe.core.common.analytics.PlaybackEventRecorder
 import app.yinyuehe.core.common.model.Track
 import app.yinyuehe.core.common.model.TrackId
+import app.yinyuehe.core.common.playback.PlaybackRepeatMode
 import app.yinyuehe.core.player.service.PlaybackService
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
@@ -56,14 +57,15 @@ class Media3PlaybackController @Inject constructor(
     object : Player.Listener {
       override fun onEvents(player: Player, events: Player.Events) {
         applicationScope.launch {
-          if (controller !== player) return@launch
-          publishSnapshot(player)
+          val activeController = controller
+          if (activeController !== player) return@launch
+          publishSnapshot(activeController)
           analyticsEventRouter.onEvents(
             isPlayingChanged = events.contains(Player.EVENT_IS_PLAYING_CHANGED),
-            isPlaying = player.isPlaying,
-            trackId = player.currentMediaItem?.mediaId?.toTrackIdOrNull(),
+            isPlaying = activeController.isPlaying,
+            trackId = activeController.currentMediaItem?.mediaId?.toTrackIdOrNull(),
             playerErrorChanged = events.contains(Player.EVENT_PLAYER_ERROR),
-            hasPlayerError = player.playerError != null,
+            hasPlayerError = activeController.playerError != null,
           )
         }
       }
@@ -200,15 +202,23 @@ class Media3PlaybackController @Inject constructor(
     dispatch { setShuffleEnabled(enabled) }
   }
 
+  override fun setRepeatMode(mode: PlaybackRepeatMode) {
+    dispatch { setRepeatMode(mode) }
+  }
+
+  override fun moveQueueItem(fromIndex: Int, toIndex: Int) {
+    dispatch { moveQueueItem(fromIndex, toIndex) }
+  }
+
   private fun dispatch(command: PlaybackCommandDispatcher.() -> Unit) {
     applicationScope.launch {
       controller?.let { mediaController -> PlaybackCommandDispatcher(mediaController).command() }
     }
   }
 
-  private fun publishSnapshot(player: Player) {
-    _state.value = player.snapshot(PlaybackConnection.CONNECTED).toPlaybackState()
-    if (player.isPlaying) startPositionTicker() else stopPositionTicker()
+  private fun publishSnapshot(mediaController: MediaController) {
+    _state.value = mediaController.snapshot(PlaybackConnection.CONNECTED).toPlaybackState()
+    if (mediaController.isPlaying) startPositionTicker() else stopPositionTicker()
   }
 
   private fun startPositionTicker() {
@@ -236,7 +246,7 @@ class Media3PlaybackController @Inject constructor(
 
 internal fun shouldPauseForToggle(playWhenReady: Boolean): Boolean = playWhenReady
 
-private fun Player.snapshot(connection: PlaybackConnection): PlayerSnapshot {
+private fun MediaController.snapshot(connection: PlaybackConnection): PlayerSnapshot {
   val itemCount = mediaItemCount
   val queueMediaIds = List(itemCount) { getMediaItemAt(it).mediaId }
   val index = currentMediaItemIndex.takeIf { it in queueMediaIds.indices } ?: C.INDEX_UNSET
@@ -255,6 +265,9 @@ private fun Player.snapshot(connection: PlaybackConnection): PlayerSnapshot {
     durationMs = duration.takeUnless { it == C.TIME_UNSET } ?: 0,
     queueMediaIds = queueMediaIds,
     shuffleEnabled = shuffleModeEnabled,
+    repeatMode = media3RepeatModeToPlaybackRepeatMode(repeatMode),
+    queuePersistenceLimited =
+      PlaybackSessionProtocol.queuePersistenceLimited(sessionExtras),
     canPlayPause = isCommandAvailable(Player.COMMAND_PLAY_PAUSE),
     canPrepare = isCommandAvailable(Player.COMMAND_PREPARE),
     canSeekToDefaultPosition = isCommandAvailable(Player.COMMAND_SEEK_TO_DEFAULT_POSITION),
@@ -262,8 +275,19 @@ private fun Player.snapshot(connection: PlaybackConnection): PlayerSnapshot {
     canPrevious =
       isCommandAvailable(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM) && hasPreviousMediaItem(),
     canNext = isCommandAvailable(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM) && hasNextMediaItem(),
+    canSetRepeatMode = isCommandAvailable(Player.COMMAND_SET_REPEAT_MODE),
+    canSetShuffle = isCommandAvailable(Player.COMMAND_SET_SHUFFLE_MODE),
+    canChangeQueue = isCommandAvailable(Player.COMMAND_CHANGE_MEDIA_ITEMS),
+    canSkipToQueueItem = isCommandAvailable(Player.COMMAND_SEEK_TO_MEDIA_ITEM),
   )
 }
+
+internal fun media3RepeatModeToPlaybackRepeatMode(repeatMode: Int): PlaybackRepeatMode =
+  when (repeatMode) {
+    Player.REPEAT_MODE_ALL -> PlaybackRepeatMode.ALL
+    Player.REPEAT_MODE_ONE -> PlaybackRepeatMode.ONE
+    else -> PlaybackRepeatMode.OFF
+  }
 
 private const val POSITION_UPDATE_INTERVAL_MS = 500L
 private const val TAG = "PlaybackController"

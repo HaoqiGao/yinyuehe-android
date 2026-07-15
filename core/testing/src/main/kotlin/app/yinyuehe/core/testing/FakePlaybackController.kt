@@ -1,6 +1,7 @@
 package app.yinyuehe.core.testing
 
 import app.yinyuehe.core.common.model.Track
+import app.yinyuehe.core.common.playback.PlaybackRepeatMode
 import app.yinyuehe.core.player.PlaybackController
 import app.yinyuehe.core.player.PlaybackState
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -17,6 +18,8 @@ class FakePlaybackController : PlaybackController {
   val removedQueueIndices = mutableListOf<Int>()
   val skippedQueueIndices = mutableListOf<Int>()
   val shuffleUpdates = mutableListOf<Boolean>()
+  val repeatUpdates = mutableListOf<PlaybackRepeatMode>()
+  val movedQueueItems = mutableListOf<Pair<Int, Int>>()
   var toggleCount = 0
   var previousCount = 0
   var nextCount = 0
@@ -63,5 +66,13 @@ class FakePlaybackController : PlaybackController {
 
   override fun setShuffleEnabled(enabled: Boolean) {
     shuffleUpdates += enabled
+  }
+
+  override fun setRepeatMode(mode: PlaybackRepeatMode) {
+    repeatUpdates += mode
+  }
+
+  override fun moveQueueItem(fromIndex: Int, toIndex: Int) {
+    movedQueueItems += fromIndex to toIndex
   }
 }

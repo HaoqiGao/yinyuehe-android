@@ -1,13 +1,33 @@
 package app.yinyuehe.core.player
 
 import androidx.media3.common.C
+import androidx.media3.common.Player
 import app.yinyuehe.core.common.model.TrackId
+import app.yinyuehe.core.common.playback.PlaybackRepeatMode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PlayerSnapshotTest {
+  @Test
+  fun media3RepeatModes_mapCompletelyToDomainRepeatModes() {
+    assertEquals(
+      PlaybackRepeatMode.OFF,
+      media3RepeatModeToPlaybackRepeatMode(Player.REPEAT_MODE_OFF),
+    )
+    assertEquals(
+      PlaybackRepeatMode.ALL,
+      media3RepeatModeToPlaybackRepeatMode(Player.REPEAT_MODE_ALL),
+    )
+    assertEquals(
+      PlaybackRepeatMode.ONE,
+      media3RepeatModeToPlaybackRepeatMode(Player.REPEAT_MODE_ONE),
+    )
+    assertEquals(PlaybackRepeatMode.OFF, media3RepeatModeToPlaybackRepeatMode(Int.MIN_VALUE))
+  }
+
   @Test
   fun bufferingPlaybackRequest_mapsToEnabledPauseAction() {
     val state =
@@ -134,12 +154,18 @@ class PlayerSnapshotTest {
           durationMs = 1_000,
           queueMediaIds = listOf("demo:morning-pulse", "", "  ", "demo:city-walk"),
           shuffleEnabled = true,
+          repeatMode = PlaybackRepeatMode.OFF,
+          queuePersistenceLimited = false,
           canPlayPause = false,
           canPrepare = false,
           canSeekToDefaultPosition = false,
           canSeek = true,
           canPrevious = true,
           canNext = false,
+          canSetRepeatMode = false,
+          canSetShuffle = false,
+          canChangeQueue = false,
+          canSkipToQueueItem = false,
         )
         .toPlaybackState()
 
@@ -173,12 +199,18 @@ class PlayerSnapshotTest {
           durationMs = C.TIME_UNSET,
           queueMediaIds = emptyList(),
           shuffleEnabled = false,
+          repeatMode = PlaybackRepeatMode.OFF,
+          queuePersistenceLimited = false,
           canPlayPause = false,
           canPrepare = false,
           canSeekToDefaultPosition = false,
           canSeek = false,
           canPrevious = false,
           canNext = false,
+          canSetRepeatMode = false,
+          canSetShuffle = false,
+          canChangeQueue = false,
+          canSkipToQueueItem = false,
         )
         .toPlaybackState()
 
@@ -202,16 +234,63 @@ class PlayerSnapshotTest {
           durationMs = 0,
           queueMediaIds = emptyList(),
           shuffleEnabled = false,
+          repeatMode = PlaybackRepeatMode.OFF,
+          queuePersistenceLimited = false,
           canPlayPause = false,
           canPrepare = false,
           canSeekToDefaultPosition = false,
           canSeek = false,
           canPrevious = false,
           canNext = false,
+          canSetRepeatMode = false,
+          canSetShuffle = false,
+          canChangeQueue = false,
+          canSkipToQueueItem = false,
         )
         .toPlaybackState()
 
     assertEquals(C.INDEX_UNSET, state.currentIndex)
+  }
+
+  @Test
+  fun snapshot_mapsRepeatPersistenceLimitAndExactCommandCapabilities() {
+    val state =
+      PlayerSnapshot(
+          connection = PlaybackConnection.CONNECTED,
+          currentMediaId = "demo:one",
+          currentIndex = 0,
+          isPlaying = false,
+          playWhenReady = false,
+          hasCurrentMediaItem = true,
+          isIdle = false,
+          isEnded = false,
+          positionMs = 0,
+          durationMs = 1_000,
+          queueMediaIds = listOf("demo:one"),
+          shuffleEnabled = true,
+          repeatMode = PlaybackRepeatMode.ONE,
+          queuePersistenceLimited = true,
+          canPlayPause = true,
+          canPrepare = true,
+          canSeekToDefaultPosition = true,
+          canSeek = true,
+          canPrevious = false,
+          canNext = false,
+          canSetRepeatMode = true,
+          canSetShuffle = false,
+          canChangeQueue = true,
+          canSkipToQueueItem = true,
+        )
+        .toPlaybackState()
+
+    assertEquals(PlaybackRepeatMode.ONE, state.repeatMode)
+    assertTrue(state.queuePersistenceLimited)
+    assertTrue(state.canSetRepeatMode)
+    assertFalse(state.canSetShuffle)
+    assertFalse(state.canChangeQueue)
+    assertTrue(state.canSkipToQueueItem)
+    assertNull(state.playbackError)
+    assertNull(state.connectionError)
   }
 }
 
@@ -237,10 +316,16 @@ private fun snapshot(
     durationMs = 1_000,
     queueMediaIds = if (hasCurrentMediaItem) listOf("local:one") else emptyList(),
     shuffleEnabled = false,
+    repeatMode = PlaybackRepeatMode.OFF,
+    queuePersistenceLimited = false,
     canPlayPause = canPlayPause,
     canPrepare = canPrepare,
     canSeekToDefaultPosition = canSeekToDefaultPosition,
     canSeek = true,
     canPrevious = false,
     canNext = false,
+    canSetRepeatMode = false,
+    canSetShuffle = false,
+    canChangeQueue = false,
+    canSkipToQueueItem = false,
   )

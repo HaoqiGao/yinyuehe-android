@@ -6,6 +6,7 @@ import app.yinyuehe.core.common.analytics.PlaybackEventRecorder
 import app.yinyuehe.core.common.model.LibrarySource
 import app.yinyuehe.core.common.model.Track
 import app.yinyuehe.core.common.model.TrackId
+import app.yinyuehe.core.common.playback.PlaybackRepeatMode
 import app.yinyuehe.core.data.TrackRepository
 import app.yinyuehe.core.data.scan.LibraryScanner
 import app.yinyuehe.core.data.scan.ScanResult
@@ -446,6 +447,8 @@ private class RecordingPlaybackController : PlaybackController {
   val queuedTracks = mutableListOf<Track>()
   val removedQueueIndices = mutableListOf<Int>()
   val skippedQueueIndices = mutableListOf<Int>()
+  val repeatUpdates = mutableListOf<PlaybackRepeatMode>()
+  val movedQueueItems = mutableListOf<Pair<Int, Int>>()
   var toggleCount = 0
   var previousCount = 0
   var nextCount = 0
@@ -489,4 +492,12 @@ private class RecordingPlaybackController : PlaybackController {
   }
 
   override fun setShuffleEnabled(enabled: Boolean) = Unit
+
+  override fun setRepeatMode(mode: PlaybackRepeatMode) {
+    repeatUpdates += mode
+  }
+
+  override fun moveQueueItem(fromIndex: Int, toIndex: Int) {
+    movedQueueItems += fromIndex to toIndex
+  }
 }
