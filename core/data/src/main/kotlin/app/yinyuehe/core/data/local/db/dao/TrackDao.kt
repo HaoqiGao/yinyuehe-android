@@ -12,10 +12,11 @@ interface TrackDao {
     """
     SELECT * FROM tracks
     WHERE isAvailable = 1
+      AND volumeName != :excludedVolumeName
     ORDER BY titleSortKey ASC, mediaId ASC
     """
   )
-  fun observeAvailableTracks(): Flow<List<TrackEntity>>
+  fun observeAvailableTracks(excludedVolumeName: String): Flow<List<TrackEntity>>
 
   @Query("SELECT * FROM tracks WHERE mediaId = :mediaId")
   suspend fun findByMediaId(mediaId: String): TrackEntity?
@@ -28,4 +29,26 @@ interface TrackDao {
 
   @Query("DELETE FROM tracks WHERE mediaId = :mediaId")
   suspend fun deleteByMediaId(mediaId: String)
+
+  @Query(
+    """
+    UPDATE tracks
+    SET isAvailable = 0
+    WHERE volumeName = :volumeName
+      AND lastSeenScanToken != :scanToken
+      AND isAvailable = 1
+    """
+  )
+  suspend fun markUnavailableNotSeenInScan(volumeName: String, scanToken: String): Int
+
+  @Query(
+    """
+    UPDATE tracks
+    SET isAvailable = 0
+    WHERE volumeName = :volumeName
+      AND volumeName != :excludedVolumeName
+      AND isAvailable = 1
+    """
+  )
+  suspend fun markVolumeUnavailable(volumeName: String, excludedVolumeName: String): Int
 }

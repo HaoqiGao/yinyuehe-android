@@ -40,6 +40,9 @@ dependencies {
   implementation(libs.androidx.compose.ui)
   ksp(libs.hilt.compiler)
 
+  testImplementation(libs.junit)
+  testImplementation(libs.kotlinx.coroutines.test)
+
   androidTestImplementation(platform(libs.androidx.compose.bom))
   androidTestImplementation(libs.androidx.compose.ui.test.junit4)
   androidTestImplementation(libs.androidx.test.ext.junit)

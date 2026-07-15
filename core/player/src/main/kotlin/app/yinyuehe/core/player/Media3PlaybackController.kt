@@ -3,12 +3,15 @@ package app.yinyuehe.core.player
 import android.content.ComponentName
 import android.content.Context
 import android.os.Looper
+import android.util.Log
 import androidx.core.content.ContextCompat
 import androidx.media3.common.C
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
+import app.yinyuehe.core.common.analytics.PlaybackEventRecorder
 import app.yinyuehe.core.common.model.Track
+import app.yinyuehe.core.common.model.TrackId
 import app.yinyuehe.core.player.service.PlaybackService
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
@@ -30,12 +33,22 @@ import kotlinx.coroutines.withContext
 
 class Media3PlaybackController @Inject constructor(
   @ApplicationContext private val context: Context,
+  playbackEventRecorder: PlaybackEventRecorder,
 ) : PlaybackController {
   private val _state = MutableStateFlow(PlaybackState())
   override val state: StateFlow<PlaybackState> = _state.asStateFlow()
 
   private val mainExecutor = ContextCompat.getMainExecutor(context)
   private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+  private val requestAnalytics =
+    PlaybackRequestAnalytics(
+      recorder = playbackEventRecorder,
+      scope = applicationScope,
+      onRecordingFailure = { error ->
+        Log.w(TAG, "Playback request analytics recording failed", error)
+      },
+    )
+  private val analyticsEventRouter = PlaybackAnalyticsEventRouter(requestAnalytics)
   private var controller: MediaController? = null
   private var positionTickerJob: Job? = null
 
@@ -45,6 +58,13 @@ class Media3PlaybackController @Inject constructor(
         applicationScope.launch {
           if (controller !== player) return@launch
           publishSnapshot(player)
+          analyticsEventRouter.onEvents(
+            isPlayingChanged = events.contains(Player.EVENT_IS_PLAYING_CHANGED),
+            isPlaying = player.isPlaying,
+            trackId = player.currentMediaItem?.mediaId?.toTrackIdOrNull(),
+            playerErrorChanged = events.contains(Player.EVENT_PLAYER_ERROR),
+            hasPlayerError = player.playerError != null,
+          )
         }
       }
     }
@@ -54,6 +74,7 @@ class Media3PlaybackController @Inject constructor(
       override fun onDisconnected(disconnectedController: MediaController) {
         applicationScope.launch {
           if (controller !== disconnectedController) return@launch
+          requestAnalytics.onPlaybackFailure()
           controller = null
           stopPositionTicker()
           _state.value = PlaybackState(connection = PlaybackConnection.DISCONNECTED)
@@ -89,6 +110,7 @@ class Media3PlaybackController @Inject constructor(
               publishSnapshot(it)
             }
             .onFailure {
+              requestAnalytics.onPlaybackFailure()
               controller = null
               stopPositionTicker()
               _state.value = PlaybackState(connection = PlaybackConnection.DISCONNECTED)
@@ -105,7 +127,7 @@ class Media3PlaybackController @Inject constructor(
       observeConnection(it)
     }
 
-  override suspend fun play(tracks: List<Track>, startIndex: Int): Boolean {
+  override suspend fun play(tracks: List<Track>, startIndex: Int, shuffle: Boolean): Boolean {
     require(tracks.isNotEmpty()) { "Playback queue must not be empty" }
     require(startIndex in tracks.indices) { "startIndex must reference the queue" }
     return withContext(Dispatchers.Main.immediate) {
@@ -119,10 +141,16 @@ class Media3PlaybackController @Inject constructor(
           handleConnectionFailure(future)
           return@withContext false
         }
-      mediaController.setMediaItems(tracks.map { it.toMediaItem() }, startIndex, 0)
-      mediaController.prepare()
-      mediaController.play()
-      true
+      val dispatcher = PlaybackCommandDispatcher(mediaController)
+      if (!dispatcher.canPlayQueue()) return@withContext false
+      requestAnalytics.onPlayRequested(tracks[startIndex].id)
+      var dispatched = false
+      try {
+        dispatched = dispatcher.playQueue(tracks, startIndex, shuffle)
+        dispatched
+      } finally {
+        if (!dispatched) requestAnalytics.onPlayDispatchRejected()
+      }
     }
   }
 
@@ -134,16 +162,47 @@ class Media3PlaybackController @Inject constructor(
 
   private fun handleConnectionFailure(future: ListenableFuture<MediaController>) {
     if (controllerFuture !== future) return
+    requestAnalytics.onPlaybackFailure()
     controller = null
     stopPositionTicker()
     _state.value = PlaybackState(connection = PlaybackConnection.DISCONNECTED)
   }
 
   override fun togglePlayPause() {
+    dispatch(PlaybackCommandDispatcher::togglePlayPause)
+  }
+
+  override fun seekTo(positionMs: Long) {
+    dispatch { seekTo(positionMs) }
+  }
+
+  override fun seekToPrevious() {
+    dispatch(PlaybackCommandDispatcher::seekToPrevious)
+  }
+
+  override fun seekToNext() {
+    dispatch(PlaybackCommandDispatcher::seekToNext)
+  }
+
+  override fun addToQueue(track: Track) {
+    dispatch { addToQueue(track) }
+  }
+
+  override fun removeQueueItem(index: Int) {
+    dispatch { removeQueueItem(index) }
+  }
+
+  override fun skipToQueueItem(index: Int) {
+    dispatch { skipToQueueItem(index) }
+  }
+
+  override fun setShuffleEnabled(enabled: Boolean) {
+    dispatch { setShuffleEnabled(enabled) }
+  }
+
+  private fun dispatch(command: PlaybackCommandDispatcher.() -> Unit) {
     applicationScope.launch {
-      controller?.let {
-        if (shouldPauseForToggle(it.playWhenReady)) it.pause() else it.play()
-      }
+      controller?.let { mediaController -> PlaybackCommandDispatcher(mediaController).command() }
     }
   }
 
@@ -177,14 +236,37 @@ class Media3PlaybackController @Inject constructor(
 
 internal fun shouldPauseForToggle(playWhenReady: Boolean): Boolean = playWhenReady
 
-private fun Player.snapshot(connection: PlaybackConnection): PlayerSnapshot =
-  PlayerSnapshot(
+private fun Player.snapshot(connection: PlaybackConnection): PlayerSnapshot {
+  val itemCount = mediaItemCount
+  val queueMediaIds = List(itemCount) { getMediaItemAt(it).mediaId }
+  val index = currentMediaItemIndex.takeIf { it in queueMediaIds.indices } ?: C.INDEX_UNSET
+  val currentItem = currentMediaItem
+  val currentPlaybackState = playbackState
+  return PlayerSnapshot(
     connection = connection,
-    currentMediaId = currentMediaItem?.mediaId,
+    currentMediaId = currentItem?.mediaId,
+    currentIndex = index,
     isPlaying = isPlaying,
+    playWhenReady = playWhenReady,
+    hasCurrentMediaItem = currentItem != null,
+    isIdle = currentPlaybackState == Player.STATE_IDLE,
+    isEnded = currentPlaybackState == Player.STATE_ENDED,
     positionMs = currentPosition,
     durationMs = duration.takeUnless { it == C.TIME_UNSET } ?: 0,
-    queueMediaIds = List(mediaItemCount) { getMediaItemAt(it).mediaId },
+    queueMediaIds = queueMediaIds,
+    shuffleEnabled = shuffleModeEnabled,
+    canPlayPause = isCommandAvailable(Player.COMMAND_PLAY_PAUSE),
+    canPrepare = isCommandAvailable(Player.COMMAND_PREPARE),
+    canSeekToDefaultPosition = isCommandAvailable(Player.COMMAND_SEEK_TO_DEFAULT_POSITION),
+    canSeek = isCommandAvailable(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM),
+    canPrevious =
+      isCommandAvailable(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM) && hasPreviousMediaItem(),
+    canNext = isCommandAvailable(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM) && hasNextMediaItem(),
   )
+}
 
 private const val POSITION_UPDATE_INTERVAL_MS = 500L
+private const val TAG = "PlaybackController"
+
+private fun String.toTrackIdOrNull(): TrackId? =
+  takeIf(String::isNotBlank)?.let(::TrackId)

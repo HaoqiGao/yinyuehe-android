@@ -28,7 +28,13 @@ class RoomTrackRepositoryTest {
     get() = DemoTrackCatalog(context)
 
   private val repository
-    get() = RoomTrackRepository(trackDao, demoCatalog)
+    get() =
+      RoomTrackRepository(
+        trackDao = trackDao,
+        favoriteDao = databaseRule.database.favoriteDao(),
+        recentPlayDao = databaseRule.database.recentPlayDao(),
+        demoCatalog = demoCatalog,
+      )
 
   @Test
   fun emptyRoom_emitsOnlyDemoCatalog() = runTest {
@@ -63,5 +69,20 @@ class RoomTrackRepositoryTest {
     assertEquals(demoCatalog.tracks(), content.tracks)
     assertTrue(content.tracks.all { it.isDemo })
     assertEquals(listOf(unavailable), trackDao.getAll())
+  }
+
+  @Test
+  fun persistedDemoUserData_doesNotSuppressFullDemoFallback() = runTest {
+    val demo = repository.demoTracks().first()
+    assertTrue(repository.setFavorite(demo.id, true))
+    assertTrue(repository.recordRecent(demo.id, positionMs = 25))
+
+    val content = repository.observeLibrary().first()
+
+    assertEquals(LibrarySource.DEMO, content.source)
+    assertEquals(demoCatalog.tracks(), content.tracks)
+    assertTrue(content.tracks.all { it.isDemo })
+    assertTrue(repository.observeAvailableLocalTracks().first().isEmpty())
+    assertEquals(listOf(demo.id.value), trackDao.getAll().map { it.mediaId })
   }
 }

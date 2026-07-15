@@ -5,6 +5,7 @@ import app.yinyuehe.core.common.model.TrackId
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TrackEntityMapperTest {
@@ -138,11 +139,36 @@ class TrackEntityMapperTest {
   }
 
   @Test
-  fun contentUri_isPassedThroughAndRoomTracksAreNeverDemo() {
+  fun contentUri_isPassedThroughAndLocalRoomTracksAreNotDemo() {
     val mapped =
       trackEntity(contentUri = "content://media/external/audio/media/314").toDomain()
 
     assertEquals("content://media/external/audio/media/314", mapped.sourceUri)
     assertFalse(mapped.isDemo)
+  }
+
+  @Test
+  fun reservedDemoVolume_mapsToDemoWithoutInventingLocalMetadata() {
+    val mapped =
+      trackEntity(
+          mediaId = "demo:one",
+          volumeName = DEMO_VOLUME_NAME,
+          mediaStoreId = -1,
+          contentUri = "android.resource://app/1",
+          displayName = null,
+          albumId = null,
+          mimeType = null,
+          sizeBytes = 0,
+          folderKey = null,
+          folderDisplayName = null,
+          dateAddedSeconds = 0,
+          dateModifiedSeconds = 0,
+        )
+        .toDomain()
+
+    assertTrue(mapped.isDemo)
+    assertNull(mapped.sizeBytes)
+    assertNull(mapped.dateAddedSeconds)
+    assertNull(mapped.dateModifiedSeconds)
   }
 }

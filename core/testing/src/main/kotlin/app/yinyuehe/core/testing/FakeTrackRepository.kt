@@ -3,6 +3,7 @@ package app.yinyuehe.core.testing
 import app.yinyuehe.core.common.model.LibraryContent
 import app.yinyuehe.core.common.model.LibrarySource
 import app.yinyuehe.core.common.model.Track
+import app.yinyuehe.core.common.model.TrackId
 import app.yinyuehe.core.data.TrackRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -14,10 +15,39 @@ class FakeTrackRepository(initialTracks: List<Track> = emptyList()) : TrackRepos
   private val localTracks =
     MutableStateFlow(if (initialTracksAreDemo) emptyList() else initialTracks)
   private val demos = MutableStateFlow(if (initialTracksAreDemo) initialTracks else emptyList())
+  private val favoriteTrackIds = MutableStateFlow<Set<TrackId>>(emptySet())
+  private val recentTracks = MutableStateFlow<List<Track>>(emptyList())
 
   override fun observeAvailableLocalTracks(): Flow<List<Track>> = localTracks
 
   override fun demoTracks(): List<Track> = demos.value
+
+  override fun observeFavoriteTrackIds(): Flow<Set<TrackId>> = favoriteTrackIds
+
+  override fun observeFavoriteTracks(): Flow<List<Track>> =
+    combine(localTracks, demos, favoriteTrackIds) { localTracks, demoTracks, favoriteIds ->
+        val tracksById = (localTracks + demoTracks).associateBy { it.id }
+        favoriteIds.mapNotNull(tracksById::get)
+      }
+      .distinctUntilChanged()
+
+  override fun observeRecentTracks(): Flow<List<Track>> = recentTracks
+
+  override suspend fun setFavorite(trackId: TrackId, favorite: Boolean): Boolean {
+    if (findTrack(trackId) == null) return false
+    favoriteTrackIds.value =
+      if (favorite) favoriteTrackIds.value + trackId else favoriteTrackIds.value - trackId
+    return true
+  }
+
+  override suspend fun recordRecent(trackId: TrackId, positionMs: Long?): Boolean {
+    val track = findTrack(trackId) ?: return false
+    recentTracks.value = listOf(track) + recentTracks.value.filterNot { it.id == trackId }.take(19)
+    return true
+  }
+
+  private fun findTrack(trackId: TrackId): Track? =
+    (localTracks.value + demos.value).find { it.id == trackId }
 
   override fun observeLibrary(): Flow<LibraryContent> =
     combine(localTracks, demos) { localTracks, demoTracks ->
