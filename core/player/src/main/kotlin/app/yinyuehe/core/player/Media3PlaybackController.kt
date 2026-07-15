@@ -89,7 +89,7 @@ class Media3PlaybackController @Inject constructor(
     ControllerConnectionCoordinator(
       scope = applicationScope,
       callbackExecutor = mainExecutor,
-      connector = ControllerConnector { onDisconnected -> buildController(onDisconnected) },
+      connector = ControllerConnector { attempt -> buildController(attempt) },
       releaseConnected = { mediaController ->
         mediaController.removeListener(playerListener)
         if (controller === mediaController) controller = null
@@ -105,42 +105,56 @@ class Media3PlaybackController @Inject constructor(
   }
 
   private fun buildController(
-    onDisconnected: (MediaController) -> Unit,
-  ): ListenableFuture<MediaController> =
-    MediaController.Builder(
-        context,
-        SessionToken(context, ComponentName(context, PlaybackService::class.java)),
+    attempt: ControllerConnectionAttempt<MediaController>,
+  ): ListenableFuture<MediaController> {
+    val noticeGate =
+      ControllerAttemptEventGate<MediaController, PlaybackNotice>(
+        onEvent = { notice -> _notices.tryEmit(notice) },
       )
-      .setApplicationLooper(Looper.getMainLooper())
-      .setListener(
-        object : MediaController.Listener {
-          override fun onDisconnected(controller: MediaController) = onDisconnected(controller)
+    attempt.attachLifecycle(
+      onActivated = { mediaController -> noticeGate.activate(mediaController) },
+      onRetired = noticeGate::invalidate,
+    )
+    return try {
+      MediaController.Builder(
+          context,
+          SessionToken(context, ComponentName(context, PlaybackService::class.java)),
+        )
+        .setApplicationLooper(Looper.getMainLooper())
+        .setListener(
+          object : MediaController.Listener {
+            override fun onDisconnected(controller: MediaController) {
+              noticeGate.invalidate()
+              attempt.onDisconnected(controller)
+            }
 
-          override fun onExtrasChanged(controller: MediaController, extras: Bundle) {
-            if (this@Media3PlaybackController.controller === controller) {
-              publishSnapshot(controller)
+            override fun onExtrasChanged(controller: MediaController, extras: Bundle) {
+              if (this@Media3PlaybackController.controller === controller) {
+                publishSnapshot(controller)
+              }
+            }
+
+            @UnstableApi
+            override fun onCustomCommand(
+              controller: MediaController,
+              command: SessionCommand,
+              args: Bundle,
+            ): ListenableFuture<SessionResult> {
+              val notice = PlaybackSessionProtocol.decode(command, args)
+              return if (notice != null && noticeGate.offer(controller, notice)) {
+                Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+              } else {
+                Futures.immediateFuture(SessionResult(SessionError.ERROR_NOT_SUPPORTED))
+              }
             }
           }
-
-          @UnstableApi
-          override fun onCustomCommand(
-            controller: MediaController,
-            command: SessionCommand,
-            args: Bundle,
-          ): ListenableFuture<SessionResult> {
-            val notice = PlaybackSessionProtocol.decode(command, args)
-            return if (
-              notice != null && this@Media3PlaybackController.controller === controller
-            ) {
-              _notices.tryEmit(notice)
-              Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
-            } else {
-              Futures.immediateFuture(SessionResult(SessionError.ERROR_NOT_SUPPORTED))
-            }
-          }
-        }
-      )
-      .buildAsync()
+        )
+        .buildAsync()
+    } catch (error: Exception) {
+      noticeGate.invalidate()
+      throw error
+    }
+  }
 
   private fun onConnectionUpdate(update: ControllerConnectionUpdate<MediaController>) {
     when (update) {
