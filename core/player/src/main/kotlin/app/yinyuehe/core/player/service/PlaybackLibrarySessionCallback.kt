@@ -69,6 +69,7 @@ internal fun isExplicitPlaybackRetry(
 
 private val EXPLICIT_RETRY_COMMANDS =
   intArrayOf(
+    Player.COMMAND_SET_MEDIA_ITEM,
     Player.COMMAND_CHANGE_MEDIA_ITEMS,
     Player.COMMAND_SEEK_TO_MEDIA_ITEM,
     Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM,
