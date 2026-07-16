@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- Work only in `/Users/ghq/Downloads/media-release/yinyuehe-android/.worktrees/m3a-playback-recovery` on `feature/m3a-playback-recovery`, based on `origin/main@6da64dc1d5202ebfc8db7e3edb79febdf8354793`.
+- Work only in the repository's dedicated worktree for `feature/m3a-playback-recovery`, based on `origin/main@6da64dc1d5202ebfc8db7e3edb79febdf8354793`.
 - Preserve `applicationId = app.yinyuehe`, `minSdk = 26`, `compileSdk = 36`, `targetSdk = 36`, and JDK/JVM target 17.
 - Pin DataStore to `1.2.1`, protobuf plugin to `0.9.5`, and protoc/runtime to `4.32.1`; do not upgrade unrelated dependencies.
 - Keep `PlaybackService` as the only owner of ExoPlayer, MediaSession, restore application, snapshot capture, queue failure recovery, and the persistence gate. Neither UI nor `Media3PlaybackController` may read/write `PlaybackSnapshotStore`.
@@ -33,13 +33,16 @@
 Before every Gradle block, run:
 
 ```bash
-KNOWN_JAVA17="/Users/ghq/.cache/yinyuehe/jdk17/8fa1eff40bb637a33613b2ccb8b12c70dc3661cc22cf8e784943715769a05336/jdk-17.0.19+10/Contents/Home"
-export JAVA_HOME="${YINYUEHE_JAVA17_HOME:-$(/usr/libexec/java_home -v 17 2>/dev/null || true)}"
-if [ ! -x "$JAVA_HOME/bin/java" ] && [ -x "$KNOWN_JAVA17/bin/java" ]; then
-  export JAVA_HOME="$KNOWN_JAVA17"
+if [ -n "${YINYUEHE_JAVA17_HOME:-}" ]; then
+  export JAVA_HOME="$YINYUEHE_JAVA17_HOME"
+elif [ -z "${JAVA_HOME:-}" ] && [ -x /usr/libexec/java_home ]; then
+  export JAVA_HOME="$(/usr/libexec/java_home -v 17 2>/dev/null || true)"
 fi
-export ANDROID_HOME="${ANDROID_HOME:-/Users/ghq/.cache/yinyuehe/android-sdk}"
-export ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+if [ -z "${ANDROID_HOME:-}" ] && [ -n "${ANDROID_SDK_ROOT:-}" ]; then
+  export ANDROID_HOME="$ANDROID_SDK_ROOT"
+elif [ -z "${ANDROID_SDK_ROOT:-}" ] && [ -n "${ANDROID_HOME:-}" ]; then
+  export ANDROID_SDK_ROOT="$ANDROID_HOME"
+fi
 export PATH="$JAVA_HOME/bin:$PATH"
 test -x "$JAVA_HOME/bin/java"
 test -d "$ANDROID_HOME"
