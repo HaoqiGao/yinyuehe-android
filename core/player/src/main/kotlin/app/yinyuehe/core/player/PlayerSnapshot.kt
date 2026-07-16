@@ -1,6 +1,8 @@
 package app.yinyuehe.core.player
 
 import app.yinyuehe.core.common.model.TrackId
+import app.yinyuehe.core.common.playback.PlaybackError
+import app.yinyuehe.core.common.playback.PlaybackRepeatMode
 
 internal data class PlayerSnapshot(
   val connection: PlaybackConnection,
@@ -15,12 +17,19 @@ internal data class PlayerSnapshot(
   val durationMs: Long,
   val queueMediaIds: List<String>,
   val shuffleEnabled: Boolean,
+  val repeatMode: PlaybackRepeatMode,
+  val queuePersistenceLimited: Boolean,
   val canPlayPause: Boolean,
   val canPrepare: Boolean,
   val canSeekToDefaultPosition: Boolean,
   val canSeek: Boolean,
   val canPrevious: Boolean,
   val canNext: Boolean,
+  val canSetRepeatMode: Boolean,
+  val canSetShuffle: Boolean,
+  val canChangeQueue: Boolean,
+  val canSkipToQueueItem: Boolean,
+  val terminalPlaybackError: PlaybackError? = null,
 )
 
 internal fun PlayerSnapshot.toPlaybackState(): PlaybackState {
@@ -39,9 +48,10 @@ internal fun PlayerSnapshot.toPlaybackState(): PlaybackState {
       canPrepare = canPrepare,
       canSeekToDefaultPosition = canSeekToDefaultPosition,
     )
+  val mappedCurrentTrackId = currentMediaId?.takeIf(String::isNotBlank)?.let(::TrackId)
   return PlaybackState(
     connection = connection,
-    currentTrackId = currentMediaId?.takeIf(String::isNotBlank)?.let(::TrackId),
+    currentTrackId = mappedCurrentTrackId,
     currentIndex = mappedCurrentIndex,
     isPlaying = isPlaying,
     toggleAction = toggleDecision.action,
@@ -50,8 +60,15 @@ internal fun PlayerSnapshot.toPlaybackState(): PlaybackState {
     durationMs = durationMs.coerceAtLeast(0),
     queueTrackIds = indexedTrackIds.map { (_, trackId) -> trackId },
     shuffleEnabled = shuffleEnabled,
+    repeatMode = repeatMode,
+    playbackError = terminalPlaybackError,
+    queuePersistenceLimited = queuePersistenceLimited,
     canSeek = canSeek,
     canPrevious = canPrevious,
     canNext = canNext,
+    canSetRepeatMode = canSetRepeatMode,
+    canSetShuffle = canSetShuffle,
+    canChangeQueue = canChangeQueue && !queuePersistenceLimited,
+    canSkipToQueueItem = canSkipToQueueItem,
   )
 }

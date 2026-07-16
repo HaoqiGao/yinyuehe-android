@@ -21,6 +21,19 @@ interface TrackDao {
   @Query("SELECT * FROM tracks WHERE mediaId = :mediaId")
   suspend fun findByMediaId(mediaId: String): TrackEntity?
 
+  @Query(
+    """
+    SELECT * FROM tracks
+    WHERE isAvailable = 1
+      AND volumeName != :excludedVolumeName
+      AND mediaId IN (:mediaIds)
+    """
+  )
+  suspend fun findAvailableByMediaIds(
+    mediaIds: List<String>,
+    excludedVolumeName: String,
+  ): List<TrackEntity>
+
   @Query("SELECT * FROM tracks ORDER BY mediaId")
   suspend fun getAll(): List<TrackEntity>
 

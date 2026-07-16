@@ -29,6 +29,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.stringResource
 import app.yinyuehe.core.common.model.LibrarySource
 import app.yinyuehe.core.common.model.Track
 import java.util.Locale
@@ -39,6 +40,8 @@ internal fun HomeScreen(
   bottomPadding: PaddingValues,
   onAction: (MusicBoxAction) -> Unit,
 ) {
+  val queueEditable =
+    state.playback.canChangeQueue && !state.playback.queuePersistenceLimited
   Column(
     modifier = Modifier.fillMaxSize().padding(bottom = bottomPadding.calculateBottomPadding()),
   ) {
@@ -97,6 +100,7 @@ internal fun HomeScreen(
         HomeTrackRow(
           track = track,
           isFavorite = track.id in state.favoriteTrackIds,
+          canAddToQueue = queueEditable,
           onAction = onAction,
         )
       }
@@ -108,8 +112,11 @@ internal fun HomeScreen(
 private fun HomeTrackRow(
   track: Track,
   isFavorite: Boolean,
+  canAddToQueue: Boolean,
   onAction: (MusicBoxAction) -> Unit,
 ) {
+  val addQueueDescription =
+    stringResource(R.string.home_add_queue_content_description, track.displayTitle)
   Card(
     modifier =
       Modifier.fillMaxWidth()
@@ -135,9 +142,10 @@ private fun HomeTrackRow(
       }
       TextButton(
         onClick = { onAction(MusicBoxAction.AddToQueue(track.id)) },
+        enabled = canAddToQueue,
         modifier =
           Modifier.sizeIn(minWidth = MinimumTouchTarget, minHeight = MinimumTouchTarget)
-            .semantics { contentDescription = "将${track.displayTitle}加入播放队列" }
+            .semantics { contentDescription = addQueueDescription }
             .testTag("home-add-queue-${track.id.value}"),
       ) {
         Text("+")

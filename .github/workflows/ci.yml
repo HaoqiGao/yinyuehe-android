@@ -29,3 +29,5 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Unit tests, lint, and debug build
         run: ./gradlew test testDebugUnitTest lintDebug assembleDebug --stacktrace
+      - name: Build instrumentation APKs
+        run: ./gradlew :app:assembleDebugAndroidTest :feature:library:assembleDebugAndroidTest :core:data:assembleDebugAndroidTest --stacktrace

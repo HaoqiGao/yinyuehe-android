@@ -45,7 +45,12 @@ dependencies {
 
   androidTestImplementation(platform(libs.androidx.compose.bom))
   androidTestImplementation(libs.androidx.compose.ui.test.junit4)
+  androidTestImplementation(libs.androidx.test.core)
+  androidTestImplementation(libs.androidx.test.runner)
   androidTestImplementation(libs.androidx.test.ext.junit)
   androidTestImplementation(libs.androidx.test.espresso.core)
+  androidTestImplementation(libs.kotlinx.coroutines.guava)
+  androidTestImplementation(libs.media3.common)
+  androidTestImplementation(libs.media3.session)
   debugImplementation(libs.androidx.compose.ui.test.manifest)
 }

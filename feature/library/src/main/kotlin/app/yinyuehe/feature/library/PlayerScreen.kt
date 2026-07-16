@@ -24,10 +24,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import app.yinyuehe.core.common.model.TrackId
+import app.yinyuehe.core.common.playback.PlaybackConnectionError
+import app.yinyuehe.core.common.playback.PlaybackRepeatMode
 import app.yinyuehe.core.player.PlaybackToggleAction
 
 @Composable
@@ -37,11 +40,27 @@ internal fun PlayerScreen(
   onAction: (MusicBoxAction) -> Unit,
 ) {
   val playback = state.playback
+  val queueEditable = playback.canChangeQueue && !playback.queuePersistenceLimited
   val toggleLabel =
     when (playback.toggleAction) {
       PlaybackToggleAction.PLAY -> "播放"
       PlaybackToggleAction.PAUSE -> "暂停"
     }
+  val repeatModeLabel =
+    stringResource(
+      when (playback.repeatMode) {
+        PlaybackRepeatMode.OFF -> R.string.player_repeat_mode_off
+        PlaybackRepeatMode.ALL -> R.string.player_repeat_mode_all
+        PlaybackRepeatMode.ONE -> R.string.player_repeat_mode_one
+      }
+    )
+  val repeatLabel = stringResource(R.string.player_repeat_format, repeatModeLabel)
+  val repeatContentDescription =
+    stringResource(R.string.player_repeat_content_description, repeatModeLabel)
+  val shuffleLabel =
+    stringResource(
+      if (playback.shuffleEnabled) R.string.player_shuffle_on else R.string.player_shuffle_off
+    )
   val duration = playback.durationMs.coerceAtLeast(0)
   val sliderMaximum = duration.coerceAtLeast(1).toFloat()
   val queueEntries = remember(playback.queueTrackIds) {
@@ -111,6 +130,59 @@ internal fun PlayerScreen(
         Text("下一首")
       }
     }
+    Row(
+      horizontalArrangement = Arrangement.spacedBy(8.dp),
+      verticalAlignment = Alignment.CenterVertically,
+    ) {
+      TextButton(
+        onClick = { onAction(MusicBoxAction.CycleRepeatMode) },
+        enabled = playback.canSetRepeatMode,
+        modifier =
+          Modifier.sizeIn(minWidth = MinimumTouchTarget, minHeight = MinimumTouchTarget)
+            .semantics {
+              contentDescription = repeatContentDescription
+            }
+            .testTag("player-repeat"),
+      ) {
+        Text(repeatLabel)
+      }
+      TextButton(
+        onClick = { onAction(MusicBoxAction.ToggleShuffle) },
+        enabled = playback.canSetShuffle,
+        modifier =
+          Modifier.sizeIn(minWidth = MinimumTouchTarget, minHeight = MinimumTouchTarget)
+            .semantics { contentDescription = shuffleLabel }
+            .testTag("player-shuffle"),
+      ) {
+        Text(shuffleLabel)
+      }
+    }
+    playback.playbackError?.let { error ->
+      Text(
+        text = stringResource(error.type.terminalMessageResource()),
+        color = MaterialTheme.colorScheme.error,
+        style = MaterialTheme.typography.bodySmall,
+      )
+    }
+    playback.connectionError?.let { error ->
+      val message =
+        when (error) {
+          PlaybackConnectionError.RETRIES_EXHAUSTED ->
+            R.string.playback_connection_retries_exhausted
+        }
+      Text(
+        text = stringResource(message),
+        color = MaterialTheme.colorScheme.error,
+        style = MaterialTheme.typography.bodySmall,
+      )
+    }
+    if (playback.queuePersistenceLimited) {
+      Text(
+        text = stringResource(R.string.playback_queue_partial_restore_guidance),
+        color = MaterialTheme.colorScheme.secondary,
+        style = MaterialTheme.typography.bodySmall,
+      )
+    }
     Text(
       "播放队列 · ${playback.queueTrackIds.size}",
       modifier = Modifier.fillMaxWidth().padding(top = 18.dp, bottom = 6.dp),
@@ -122,7 +194,15 @@ internal fun PlayerScreen(
     ) {
       itemsIndexed(queueEntries, key = { _, entry -> entry.key }) { index, entry ->
         val id = entry.trackId
-        val title = state.trackCatalog[id]?.displayTitle ?: id.value
+        val title = state.trackCatalog[id]?.displayTitle ?: stringResource(R.string.unknown_track)
+        val moveUpDescription =
+          stringResource(R.string.player_queue_move_up_content_description, title)
+        val moveDownDescription =
+          stringResource(R.string.player_queue_move_down_content_description, title)
+        val jumpDescription =
+          stringResource(R.string.player_queue_jump_content_description, title)
+        val removeDescription =
+          stringResource(R.string.player_queue_remove_content_description, title)
         Row(
           modifier = Modifier.fillMaxWidth(),
           verticalAlignment = Alignment.CenterVertically,
@@ -132,22 +212,48 @@ internal fun PlayerScreen(
             modifier = Modifier.weight(1f),
           )
           TextButton(
-            onClick = { onAction(MusicBoxAction.JumpToQueueItem(index)) },
+            onClick = {
+              onAction(MusicBoxAction.MoveQueueItem(index, QueueMoveDirection.UP))
+            },
+            enabled = queueEditable && index > 0,
             modifier =
-              Modifier.sizeIn(minHeight = MinimumTouchTarget)
-                .semantics { contentDescription = "跳转到$title" }
+              Modifier.sizeIn(minWidth = MinimumTouchTarget, minHeight = MinimumTouchTarget)
+                .semantics { contentDescription = moveUpDescription }
+                .testTag("player-queue-move-up-$index"),
+          ) {
+            Text(stringResource(R.string.player_queue_move_up_button))
+          }
+          TextButton(
+            onClick = {
+              onAction(MusicBoxAction.MoveQueueItem(index, QueueMoveDirection.DOWN))
+            },
+            enabled = queueEditable && index < queueEntries.lastIndex,
+            modifier =
+              Modifier.sizeIn(minWidth = MinimumTouchTarget, minHeight = MinimumTouchTarget)
+                .semantics { contentDescription = moveDownDescription }
+                .testTag("player-queue-move-down-$index"),
+          ) {
+            Text(stringResource(R.string.player_queue_move_down_button))
+          }
+          TextButton(
+            onClick = { onAction(MusicBoxAction.JumpToQueueItem(index)) },
+            enabled = playback.canSkipToQueueItem,
+            modifier =
+              Modifier.sizeIn(minWidth = MinimumTouchTarget, minHeight = MinimumTouchTarget)
+                .semantics { contentDescription = jumpDescription }
                 .testTag("player-queue-jump-$index"),
           ) {
-            Text("跳转")
+            Text(stringResource(R.string.player_queue_jump_button))
           }
           TextButton(
             onClick = { onAction(MusicBoxAction.RemoveQueueItem(index)) },
+            enabled = queueEditable,
             modifier =
               Modifier.sizeIn(minWidth = MinimumTouchTarget, minHeight = MinimumTouchTarget)
-                .semantics { contentDescription = "从队列移除$title" }
+                .semantics { contentDescription = removeDescription }
                 .testTag("player-queue-remove-$index"),
           ) {
-            Text("移除")
+            Text(stringResource(R.string.player_queue_remove_button))
           }
         }
       }

@@ -2,31 +2,40 @@ package app.yinyuehe.core.player
 
 import android.content.ComponentName
 import android.content.Context
+import android.os.Bundle
 import android.os.Looper
 import android.util.Log
 import androidx.core.content.ContextCompat
 import androidx.media3.common.C
 import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
+import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionError
+import androidx.media3.session.SessionResult
 import androidx.media3.session.SessionToken
 import app.yinyuehe.core.common.analytics.PlaybackEventRecorder
 import app.yinyuehe.core.common.model.Track
 import app.yinyuehe.core.common.model.TrackId
+import app.yinyuehe.core.common.playback.PlaybackNotice
+import app.yinyuehe.core.common.playback.PlaybackRepeatMode
 import app.yinyuehe.core.player.service.PlaybackService
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.guava.await
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -37,6 +46,12 @@ class Media3PlaybackController @Inject constructor(
 ) : PlaybackController {
   private val _state = MutableStateFlow(PlaybackState())
   override val state: StateFlow<PlaybackState> = _state.asStateFlow()
+  private val _notices =
+    MutableSharedFlow<PlaybackNotice>(
+      extraBufferCapacity = 16,
+      onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+  override val notices: Flow<PlaybackNotice> = _notices.asSharedFlow()
 
   private val mainExecutor = ContextCompat.getMainExecutor(context)
   private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -56,91 +71,119 @@ class Media3PlaybackController @Inject constructor(
     object : Player.Listener {
       override fun onEvents(player: Player, events: Player.Events) {
         applicationScope.launch {
-          if (controller !== player) return@launch
-          publishSnapshot(player)
+          val activeController = controller
+          if (activeController !== player) return@launch
+          publishSnapshot(activeController)
           analyticsEventRouter.onEvents(
             isPlayingChanged = events.contains(Player.EVENT_IS_PLAYING_CHANGED),
-            isPlaying = player.isPlaying,
-            trackId = player.currentMediaItem?.mediaId?.toTrackIdOrNull(),
+            isPlaying = activeController.isPlaying,
+            trackId = activeController.currentMediaItem?.mediaId?.toTrackIdOrNull(),
             playerErrorChanged = events.contains(Player.EVENT_PLAYER_ERROR),
-            hasPlayerError = player.playerError != null,
+            hasPlayerError = activeController.playerError != null,
           )
         }
       }
     }
 
-  private val controllerListener =
-    object : MediaController.Listener {
-      override fun onDisconnected(disconnectedController: MediaController) {
-        applicationScope.launch {
-          if (controller !== disconnectedController) return@launch
-          requestAnalytics.onPlaybackFailure()
-          controller = null
-          stopPositionTicker()
-          _state.value = PlaybackState(connection = PlaybackConnection.DISCONNECTED)
-          rebuildController()
-        }
-      }
-    }
-
-  private var controllerFuture: ListenableFuture<MediaController> = buildController()
+  private val connectionCoordinator =
+    ControllerConnectionCoordinator(
+      scope = applicationScope,
+      callbackExecutor = mainExecutor,
+      connector = ControllerConnector { attempt -> buildController(attempt) },
+      releaseConnected = { mediaController ->
+        mediaController.removeListener(playerListener)
+        if (controller === mediaController) controller = null
+        stopPositionTicker()
+        mediaController.release()
+      },
+      releasePending = { future -> MediaController.releaseFuture(future) },
+      onUpdate = ::onConnectionUpdate,
+    )
 
   init {
-    observeConnection(controllerFuture)
+    connectionCoordinator.start()
   }
 
-  private fun buildController(): ListenableFuture<MediaController> =
-    MediaController.Builder(
-        context,
-        SessionToken(context, ComponentName(context, PlaybackService::class.java)),
+  private fun buildController(
+    attempt: ControllerConnectionAttempt<MediaController>,
+  ): ListenableFuture<MediaController> {
+    val noticeGate =
+      ControllerAttemptEventGate<MediaController, PlaybackNotice>(
+        onEvent = { notice -> _notices.tryEmit(notice) },
       )
-      .setApplicationLooper(Looper.getMainLooper())
-      .setListener(controllerListener)
-      .buildAsync()
-
-  private fun observeConnection(future: ListenableFuture<MediaController>) {
-    future.addListener(
-      {
-        applicationScope.launch {
-          if (controllerFuture !== future) return@launch
-          runCatching { future.get() }
-            .onSuccess {
-              controller = it
-              it.addListener(playerListener)
-              publishSnapshot(it)
-            }
-            .onFailure {
-              requestAnalytics.onPlaybackFailure()
-              controller = null
-              stopPositionTicker()
-              _state.value = PlaybackState(connection = PlaybackConnection.DISCONNECTED)
-            }
-        }
-      },
-      mainExecutor,
+    attempt.attachLifecycle(
+      onActivated = { mediaController -> noticeGate.activate(mediaController) },
+      onRetired = noticeGate::invalidate,
     )
+    return try {
+      MediaController.Builder(
+          context,
+          SessionToken(context, ComponentName(context, PlaybackService::class.java)),
+        )
+        .setApplicationLooper(Looper.getMainLooper())
+        .setListener(
+          object : MediaController.Listener {
+            override fun onDisconnected(controller: MediaController) {
+              noticeGate.invalidate()
+              attempt.onDisconnected(controller)
+            }
+
+            override fun onExtrasChanged(controller: MediaController, extras: Bundle) {
+              if (this@Media3PlaybackController.controller === controller) {
+                publishSnapshot(controller)
+              }
+            }
+
+            @UnstableApi
+            override fun onCustomCommand(
+              controller: MediaController,
+              command: SessionCommand,
+              args: Bundle,
+            ): ListenableFuture<SessionResult> {
+              val notice = PlaybackSessionProtocol.decode(command, args)
+              return if (notice != null && noticeGate.offer(controller, notice)) {
+                Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+              } else {
+                Futures.immediateFuture(SessionResult(SessionError.ERROR_NOT_SUPPORTED))
+              }
+            }
+          }
+        )
+        .buildAsync()
+    } catch (error: Exception) {
+      noticeGate.invalidate()
+      throw error
+    }
   }
 
-  private fun rebuildController(): ListenableFuture<MediaController> =
-    buildController().also {
-      controllerFuture = it
-      observeConnection(it)
+  private fun onConnectionUpdate(update: ControllerConnectionUpdate<MediaController>) {
+    when (update) {
+      ControllerConnectionUpdate.Connecting -> {
+        controller = null
+        stopPositionTicker()
+        _state.value = connectingPlaybackState(_state.value)
+      }
+      is ControllerConnectionUpdate.Connected -> {
+        controller = update.controller
+        update.controller.addListener(playerListener)
+        publishSnapshot(update.controller)
+      }
+      ControllerConnectionUpdate.Exhausted -> {
+        requestAnalytics.onPlaybackFailure()
+        controller = null
+        stopPositionTicker()
+        _state.value = exhaustedPlaybackState()
+      }
     }
+  }
 
   override suspend fun play(tracks: List<Track>, startIndex: Int, shuffle: Boolean): Boolean {
     require(tracks.isNotEmpty()) { "Playback queue must not be empty" }
     require(startIndex in tracks.indices) { "startIndex must reference the queue" }
     return withContext(Dispatchers.Main.immediate) {
-      val future = selectControllerFuture()
       val mediaController =
-        try {
-          Futures.nonCancellationPropagating(future).await()
-        } catch (cancellation: CancellationException) {
-          throw cancellation
-        } catch (_: Exception) {
-          handleConnectionFailure(future)
-          return@withContext false
-        }
+        connectionCoordinator.awaitConnected(startNewRoundIfExhausted = true)
+          ?: return@withContext false
       val dispatcher = PlaybackCommandDispatcher(mediaController)
       if (!dispatcher.canPlayQueue()) return@withContext false
       requestAnalytics.onPlayRequested(tracks[startIndex].id)
@@ -152,20 +195,6 @@ class Media3PlaybackController @Inject constructor(
         if (!dispatched) requestAnalytics.onPlayDispatchRejected()
       }
     }
-  }
-
-  private fun selectControllerFuture(): ListenableFuture<MediaController> {
-    if (!controllerFuture.hasFailed()) return controllerFuture
-    _state.value = PlaybackState(connection = PlaybackConnection.CONNECTING)
-    return rebuildController()
-  }
-
-  private fun handleConnectionFailure(future: ListenableFuture<MediaController>) {
-    if (controllerFuture !== future) return
-    requestAnalytics.onPlaybackFailure()
-    controller = null
-    stopPositionTicker()
-    _state.value = PlaybackState(connection = PlaybackConnection.DISCONNECTED)
   }
 
   override fun togglePlayPause() {
@@ -200,15 +229,23 @@ class Media3PlaybackController @Inject constructor(
     dispatch { setShuffleEnabled(enabled) }
   }
 
+  override fun setRepeatMode(mode: PlaybackRepeatMode) {
+    dispatch { setRepeatMode(mode) }
+  }
+
+  override fun moveQueueItem(fromIndex: Int, toIndex: Int) {
+    dispatch { moveQueueItem(fromIndex, toIndex) }
+  }
+
   private fun dispatch(command: PlaybackCommandDispatcher.() -> Unit) {
     applicationScope.launch {
       controller?.let { mediaController -> PlaybackCommandDispatcher(mediaController).command() }
     }
   }
 
-  private fun publishSnapshot(player: Player) {
-    _state.value = player.snapshot(PlaybackConnection.CONNECTED).toPlaybackState()
-    if (player.isPlaying) startPositionTicker() else stopPositionTicker()
+  private fun publishSnapshot(mediaController: MediaController) {
+    _state.value = mediaController.snapshot(PlaybackConnection.CONNECTED).toPlaybackState()
+    if (mediaController.isPlaying) startPositionTicker() else stopPositionTicker()
   }
 
   private fun startPositionTicker() {
@@ -236,12 +273,13 @@ class Media3PlaybackController @Inject constructor(
 
 internal fun shouldPauseForToggle(playWhenReady: Boolean): Boolean = playWhenReady
 
-private fun Player.snapshot(connection: PlaybackConnection): PlayerSnapshot {
+private fun MediaController.snapshot(connection: PlaybackConnection): PlayerSnapshot {
   val itemCount = mediaItemCount
   val queueMediaIds = List(itemCount) { getMediaItemAt(it).mediaId }
   val index = currentMediaItemIndex.takeIf { it in queueMediaIds.indices } ?: C.INDEX_UNSET
   val currentItem = currentMediaItem
   val currentPlaybackState = playbackState
+  val currentSessionExtras = sessionExtras
   return PlayerSnapshot(
     connection = connection,
     currentMediaId = currentItem?.mediaId,
@@ -255,6 +293,8 @@ private fun Player.snapshot(connection: PlaybackConnection): PlayerSnapshot {
     durationMs = duration.takeUnless { it == C.TIME_UNSET } ?: 0,
     queueMediaIds = queueMediaIds,
     shuffleEnabled = shuffleModeEnabled,
+    repeatMode = media3RepeatModeToPlaybackRepeatMode(repeatMode),
+    queuePersistenceLimited = PlaybackSessionProtocol.queuePersistenceLimited(currentSessionExtras),
     canPlayPause = isCommandAvailable(Player.COMMAND_PLAY_PAUSE),
     canPrepare = isCommandAvailable(Player.COMMAND_PREPARE),
     canSeekToDefaultPosition = isCommandAvailable(Player.COMMAND_SEEK_TO_DEFAULT_POSITION),
@@ -262,8 +302,20 @@ private fun Player.snapshot(connection: PlaybackConnection): PlayerSnapshot {
     canPrevious =
       isCommandAvailable(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM) && hasPreviousMediaItem(),
     canNext = isCommandAvailable(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM) && hasNextMediaItem(),
+    canSetRepeatMode = isCommandAvailable(Player.COMMAND_SET_REPEAT_MODE),
+    canSetShuffle = isCommandAvailable(Player.COMMAND_SET_SHUFFLE_MODE),
+    canChangeQueue = isCommandAvailable(Player.COMMAND_CHANGE_MEDIA_ITEMS),
+    canSkipToQueueItem = isCommandAvailable(Player.COMMAND_SEEK_TO_MEDIA_ITEM),
+    terminalPlaybackError = PlaybackSessionProtocol.terminalPlaybackError(currentSessionExtras),
   )
 }
+
+internal fun media3RepeatModeToPlaybackRepeatMode(repeatMode: Int): PlaybackRepeatMode =
+  when (repeatMode) {
+    Player.REPEAT_MODE_ALL -> PlaybackRepeatMode.ALL
+    Player.REPEAT_MODE_ONE -> PlaybackRepeatMode.ONE
+    else -> PlaybackRepeatMode.OFF
+  }
 
 private const val POSITION_UPDATE_INTERVAL_MS = 500L
 private const val TAG = "PlaybackController"

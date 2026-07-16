@@ -1,8 +1,12 @@
 package app.yinyuehe.core.testing
 
 import app.yinyuehe.core.common.model.Track
+import app.yinyuehe.core.common.playback.PlaybackNotice
+import app.yinyuehe.core.common.playback.PlaybackRepeatMode
 import app.yinyuehe.core.player.PlaybackController
 import app.yinyuehe.core.player.PlaybackState
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -11,12 +15,16 @@ class FakePlaybackController : PlaybackController {
 
   private val mutableState = MutableStateFlow(PlaybackState())
   override val state: StateFlow<PlaybackState> = mutableState
+  private val mutableNotices = MutableSharedFlow<PlaybackNotice>(extraBufferCapacity = 8)
+  override val notices: Flow<PlaybackNotice> = mutableNotices
   val playRequests = mutableListOf<PlayRequest>()
   val seekPositions = mutableListOf<Long>()
   val queuedTracks = mutableListOf<Track>()
   val removedQueueIndices = mutableListOf<Int>()
   val skippedQueueIndices = mutableListOf<Int>()
   val shuffleUpdates = mutableListOf<Boolean>()
+  val repeatUpdates = mutableListOf<PlaybackRepeatMode>()
+  val movedQueueItems = mutableListOf<Pair<Int, Int>>()
   var toggleCount = 0
   var previousCount = 0
   var nextCount = 0
@@ -25,6 +33,14 @@ class FakePlaybackController : PlaybackController {
   var playHandler: suspend (PlayRequest) -> Boolean = {
     playFailure?.let { failure -> throw failure }
     playResult
+  }
+
+  fun emitState(value: PlaybackState) {
+    mutableState.value = value
+  }
+
+  fun emitNotice(notice: PlaybackNotice) {
+    check(mutableNotices.tryEmit(notice))
   }
 
   override suspend fun play(tracks: List<Track>, startIndex: Int, shuffle: Boolean): Boolean {
@@ -63,5 +79,13 @@ class FakePlaybackController : PlaybackController {
 
   override fun setShuffleEnabled(enabled: Boolean) {
     shuffleUpdates += enabled
+  }
+
+  override fun setRepeatMode(mode: PlaybackRepeatMode) {
+    repeatUpdates += mode
+  }
+
+  override fun moveQueueItem(fromIndex: Int, toIndex: Int) {
+    movedQueueItems += fromIndex to toIndex
   }
 }

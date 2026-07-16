@@ -4,6 +4,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import app.yinyuehe.core.common.model.Track
 import app.yinyuehe.core.common.model.TrackId
+import app.yinyuehe.core.common.playback.PlaybackRepeatMode
 import java.lang.reflect.Method
 import java.lang.reflect.Proxy
 import org.junit.Assert.assertEquals
@@ -53,6 +54,49 @@ class PlaybackCommandTest {
     )
     assertEquals(listOf(321L), player.calls[0].arguments)
     assertEquals(listOf(true), player.calls[3].arguments)
+  }
+
+  @Test
+  fun setRepeatMode_mapsEveryDomainValueToTheMatchingPlayerMode() {
+    val player = RecordingPlayer(mediaItemCount = 1)
+    val dispatcher = PlaybackCommandDispatcher(player.instance)
+
+    dispatcher.setRepeatMode(PlaybackRepeatMode.OFF)
+    dispatcher.setRepeatMode(PlaybackRepeatMode.ALL)
+    dispatcher.setRepeatMode(PlaybackRepeatMode.ONE)
+
+    assertEquals(
+      listOf(
+        Call("setRepeatMode", listOf(Player.REPEAT_MODE_OFF)),
+        Call("setRepeatMode", listOf(Player.REPEAT_MODE_ALL)),
+        Call("setRepeatMode", listOf(Player.REPEAT_MODE_ONE)),
+      ),
+      player.calls,
+    )
+  }
+
+  @Test
+  fun moveQueueItem_validatesOccurrenceIndicesAgainstTheLiveQueue() {
+    val player = RecordingPlayer(mediaItemCount = 3)
+    val dispatcher = PlaybackCommandDispatcher(player.instance)
+
+    dispatcher.moveQueueItem(-1, 1)
+    dispatcher.moveQueueItem(0, 3)
+    dispatcher.moveQueueItem(1, 1)
+    dispatcher.moveQueueItem(0, 2)
+
+    assertEquals(listOf(Call("moveMediaItem", listOf(0, 2))), player.calls)
+  }
+
+  @Test
+  fun repeatAndMove_doNothingWhenTheirExactCommandsAreUnavailable() {
+    val player = RecordingPlayer(mediaItemCount = 2, availableCommands = emptySet())
+    val dispatcher = PlaybackCommandDispatcher(player.instance)
+
+    dispatcher.setRepeatMode(PlaybackRepeatMode.ALL)
+    dispatcher.moveQueueItem(0, 1)
+
+    assertTrue(player.calls.isEmpty())
   }
 
   @Test
@@ -229,6 +273,7 @@ private class RecordingPlayer(
       Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
       Player.COMMAND_SEEK_TO_MEDIA_ITEM,
       Player.COMMAND_SET_SHUFFLE_MODE,
+      Player.COMMAND_SET_REPEAT_MODE,
       Player.COMMAND_CHANGE_MEDIA_ITEMS,
     ),
 ) {

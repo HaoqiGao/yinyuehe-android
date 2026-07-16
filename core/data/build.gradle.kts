@@ -2,6 +2,7 @@ plugins {
   id("yinyuehe.android.library")
   alias(libs.plugins.hilt)
   alias(libs.plugins.ksp)
+  alias(libs.plugins.protobuf)
   alias(libs.plugins.room)
 }
 
@@ -15,6 +16,20 @@ android {
 
 room {
   schemaDirectory("$projectDir/schemas")
+}
+
+protobuf {
+  protoc {
+    artifact = "com.google.protobuf:protoc:${libs.versions.protobuf.get()}"
+  }
+  generateProtoTasks {
+    all().configureEach {
+      builtins {
+        create("java") { option("lite") }
+        create("kotlin") { option("lite") }
+      }
+    }
+  }
 }
 
 configurations.configureEach {
@@ -31,9 +46,11 @@ configurations.configureEach {
 dependencies {
   api(project(":core:common"))
   api(libs.kotlinx.coroutines.core)
+  implementation(libs.androidx.datastore)
   implementation(libs.androidx.room.runtime)
   implementation(libs.androidx.room.ktx)
   implementation(libs.hilt.android)
+  implementation(libs.protobuf.kotlin.lite)
   ksp(libs.androidx.room.compiler)
   ksp(libs.hilt.compiler)
 

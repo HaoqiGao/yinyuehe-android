@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package app.yinyuehe.core.data.playback.proto;
+option java_package = "app.yinyuehe.core.data.playback.proto";
+option java_multiple_files = true;
+option java_outer_classname = "PlaybackSnapshotSchema";
+
+enum PlaybackRepeatModeProto {
+  PLAYBACK_REPEAT_MODE_OFF = 0;
+  PLAYBACK_REPEAT_MODE_ALL = 1;
+  PLAYBACK_REPEAT_MODE_ONE = 2;
+}
+
+message PlaybackSnapshotProto {
+  int32 schema_version = 1;
+  repeated string media_ids = 2;
+  int32 current_index = 3;
+  int64 position_ms = 4;
+  bool shuffle_enabled = 5;
+  PlaybackRepeatModeProto repeat_mode = 6;
+}

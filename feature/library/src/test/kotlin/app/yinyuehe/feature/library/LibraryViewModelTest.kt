@@ -6,6 +6,10 @@ import app.yinyuehe.core.common.analytics.PlaybackEventRecorder
 import app.yinyuehe.core.common.model.LibrarySource
 import app.yinyuehe.core.common.model.Track
 import app.yinyuehe.core.common.model.TrackId
+import app.yinyuehe.core.common.playback.PlaybackError
+import app.yinyuehe.core.common.playback.PlaybackErrorType
+import app.yinyuehe.core.common.playback.PlaybackNotice
+import app.yinyuehe.core.common.playback.PlaybackRepeatMode
 import app.yinyuehe.core.data.TrackRepository
 import app.yinyuehe.core.data.scan.LibraryScanner
 import app.yinyuehe.core.data.scan.ScanResult
@@ -17,14 +21,19 @@ import app.yinyuehe.core.testing.FakeTrackRepository
 import app.yinyuehe.core.testing.MainDispatcherRule
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -171,6 +180,8 @@ class LibraryViewModelTest {
         canSeek = true,
         canPrevious = true,
         canNext = true,
+        canChangeQueue = true,
+        canSkipToQueueItem = true,
       )
     )
     val viewModel = viewModel(FakeTrackRepository(listOf(one)), controller)
@@ -190,6 +201,185 @@ class LibraryViewModelTest {
     assertEquals(listOf(one), controller.queuedTracks)
     assertEquals(listOf(0), controller.removedQueueIndices)
     assertEquals(listOf(0), controller.skippedQueueIndices)
+  }
+
+  @Test
+  fun playbackModeAndMoveActions_delegateWithoutOptimisticState() = runTest {
+    val controller = RecordingPlaybackController()
+    val viewModel = viewModel(FakeTrackRepository(listOf(track("one"))), controller)
+    controller.emit(
+      PlaybackState(
+        queueTrackIds = listOf(TrackId("one"), TrackId("two"), TrackId("three")),
+        repeatMode = PlaybackRepeatMode.OFF,
+        shuffleEnabled = false,
+        canSetRepeatMode = true,
+        canSetShuffle = true,
+        canChangeQueue = true,
+      )
+    )
+    advanceUntilIdle()
+
+    viewModel.onAction(MusicBoxAction.CycleRepeatMode)
+    viewModel.onAction(MusicBoxAction.ToggleShuffle)
+    viewModel.onAction(MusicBoxAction.MoveQueueItem(2, QueueMoveDirection.UP))
+
+    assertEquals(listOf(PlaybackRepeatMode.ALL), controller.repeatUpdates)
+    assertEquals(listOf(true), controller.shuffleUpdates)
+    assertEquals(listOf(2 to 1), controller.movedQueueItems)
+    assertEquals(PlaybackRepeatMode.OFF, viewModel.uiState.value.playback.repeatMode)
+    assertFalse(viewModel.uiState.value.playback.shuffleEnabled)
+
+    controller.emit(viewModel.uiState.value.playback.copy(shuffleEnabled = true))
+    advanceUntilIdle()
+    viewModel.onAction(MusicBoxAction.ToggleShuffle)
+    controller.emit(viewModel.uiState.value.playback.copy(repeatMode = PlaybackRepeatMode.ALL))
+    advanceUntilIdle()
+    viewModel.onAction(MusicBoxAction.CycleRepeatMode)
+    controller.emit(viewModel.uiState.value.playback.copy(repeatMode = PlaybackRepeatMode.ONE))
+    advanceUntilIdle()
+    viewModel.onAction(MusicBoxAction.CycleRepeatMode)
+
+    assertEquals(
+      listOf(PlaybackRepeatMode.ALL, PlaybackRepeatMode.ONE, PlaybackRepeatMode.OFF),
+      controller.repeatUpdates,
+    )
+    assertEquals(listOf(true, false), controller.shuffleUpdates)
+  }
+
+  @Test
+  fun unavailableModeCapabilitiesRejectDirectViewModelActions() = runTest {
+    val controller = RecordingPlaybackController()
+    val viewModel = viewModel(FakeTrackRepository(listOf(track("one"))), controller)
+    controller.emit(
+      PlaybackState(
+        repeatMode = PlaybackRepeatMode.OFF,
+        shuffleEnabled = false,
+        canSetRepeatMode = false,
+        canSetShuffle = false,
+      )
+    )
+    advanceUntilIdle()
+
+    viewModel.onAction(MusicBoxAction.CycleRepeatMode)
+    viewModel.onAction(MusicBoxAction.ToggleShuffle)
+
+    assertTrue(controller.repeatUpdates.isEmpty())
+    assertTrue(controller.shuffleUpdates.isEmpty())
+  }
+
+  @Test
+  fun queueMoveRejectsOccurrenceBoundsAndDelegatesValidIndices() = runTest {
+    val controller = RecordingPlaybackController()
+    val viewModel = viewModel(FakeTrackRepository(listOf(track("one"))), controller)
+    controller.emit(
+      PlaybackState(
+        queueTrackIds = listOf(TrackId("one"), TrackId("one"), TrackId("two")),
+        canChangeQueue = true,
+      )
+    )
+    advanceUntilIdle()
+
+    viewModel.onAction(MusicBoxAction.MoveQueueItem(0, QueueMoveDirection.UP))
+    viewModel.onAction(MusicBoxAction.MoveQueueItem(2, QueueMoveDirection.DOWN))
+    viewModel.onAction(MusicBoxAction.MoveQueueItem(-1, QueueMoveDirection.DOWN))
+    viewModel.onAction(MusicBoxAction.MoveQueueItem(3, QueueMoveDirection.UP))
+    viewModel.onAction(MusicBoxAction.MoveQueueItem(1, QueueMoveDirection.UP))
+    viewModel.onAction(MusicBoxAction.MoveQueueItem(1, QueueMoveDirection.DOWN))
+
+    assertEquals(listOf(1 to 0, 1 to 2), controller.movedQueueItems)
+  }
+
+  @Test
+  fun limitedQueueRejectsIncrementalEditsButAllowsFullPlayReplacement() = runTest {
+    val one = track("one")
+    val controller = RecordingPlaybackController()
+    val viewModel = viewModel(FakeTrackRepository(listOf(one)), controller)
+    controller.emit(
+      PlaybackState(
+        queueTrackIds = listOf(one.id, one.id),
+        queuePersistenceLimited = true,
+        canChangeQueue = true,
+      )
+    )
+    advanceUntilIdle()
+
+    viewModel.onAction(MusicBoxAction.AddToQueue(one.id))
+    viewModel.onAction(MusicBoxAction.RemoveQueueItem(0))
+    viewModel.onAction(MusicBoxAction.MoveQueueItem(0, QueueMoveDirection.DOWN))
+    viewModel.onAction(MusicBoxAction.PlayTrack(one.id, TrackCollection.LIBRARY))
+    advanceUntilIdle()
+    viewModel.onAction(MusicBoxAction.PlayAll(TrackCollection.LIBRARY))
+    advanceUntilIdle()
+    viewModel.onAction(MusicBoxAction.PlayRandom(TrackCollection.LIBRARY))
+    advanceUntilIdle()
+
+    assertTrue(controller.queuedTracks.isEmpty())
+    assertTrue(controller.removedQueueIndices.isEmpty())
+    assertTrue(controller.movedQueueItems.isEmpty())
+    assertEquals(3, controller.playRequests.size)
+    assertEquals(listOf(false, false, true), controller.playRequests.map { it.shuffle })
+  }
+
+  @Test
+  fun independentPlaybackCapabilitiesRejectBypassedUiActions() = runTest {
+    val one = track("one")
+    val controller = RecordingPlaybackController()
+    val viewModel = viewModel(FakeTrackRepository(listOf(one)), controller)
+    controller.emit(
+      PlaybackState(
+        queueTrackIds = listOf(one.id),
+        canTogglePlayPause = false,
+        canSeek = false,
+        canPrevious = false,
+        canNext = false,
+        canChangeQueue = false,
+        canSkipToQueueItem = false,
+      )
+    )
+    advanceUntilIdle()
+
+    viewModel.onAction(MusicBoxAction.TogglePlayPause)
+    viewModel.onAction(MusicBoxAction.SeekTo(100))
+    viewModel.onAction(MusicBoxAction.Previous)
+    viewModel.onAction(MusicBoxAction.Next)
+    viewModel.onAction(MusicBoxAction.AddToQueue(one.id))
+    viewModel.onAction(MusicBoxAction.RemoveQueueItem(0))
+    viewModel.onAction(MusicBoxAction.JumpToQueueItem(0))
+
+    assertEquals(0, controller.toggleCount)
+    assertTrue(controller.seekPositions.isEmpty())
+    assertEquals(0, controller.previousCount)
+    assertEquals(0, controller.nextCount)
+    assertTrue(controller.queuedTracks.isEmpty())
+    assertTrue(controller.removedQueueIndices.isEmpty())
+    assertTrue(controller.skippedQueueIndices.isEmpty())
+  }
+
+  @Test
+  fun trackSkippedNotice_isForwardedOnceAsNonStateEffect() = runTest {
+    val controller = RecordingPlaybackController()
+    val viewModel = viewModel(FakeTrackRepository(listOf(track("one"))), controller)
+    advanceUntilIdle()
+    val received = async(start = CoroutineStart.UNDISPATCHED) { viewModel.effects.first() }
+
+    controller.emitNotice(
+      PlaybackNotice.TrackSkipped(
+        PlaybackError(
+          type = PlaybackErrorType.DECODER,
+          media3ErrorCode = 4003,
+          trackId = TrackId("private-track-id"),
+        )
+      )
+    )
+
+    assertEquals(MusicBoxEffect.TrackSkipped(PlaybackErrorType.DECODER), received.await())
+    assertFalse(viewModel.uiState.value.toString().contains("4003"))
+    assertFalse(viewModel.uiState.value.toString().contains("private-track-id"))
+
+    val replay = async(start = CoroutineStart.UNDISPATCHED) {
+      withTimeoutOrNull(1) { viewModel.effects.first() }
+    }
+    assertNull(replay.await())
   }
 
   @Test
@@ -441,11 +631,17 @@ private class RecordingPlaybackController : PlaybackController {
 
   private val mutableState = kotlinx.coroutines.flow.MutableStateFlow(PlaybackState())
   override val state = mutableState
+  override val notices =
+    kotlinx.coroutines.flow.MutableSharedFlow<
+      app.yinyuehe.core.common.playback.PlaybackNotice
+    >(extraBufferCapacity = 8)
   val playRequests = mutableListOf<PlayRequest>()
   val seekPositions = mutableListOf<Long>()
   val queuedTracks = mutableListOf<Track>()
   val removedQueueIndices = mutableListOf<Int>()
   val skippedQueueIndices = mutableListOf<Int>()
+  val repeatUpdates = mutableListOf<PlaybackRepeatMode>()
+  val movedQueueItems = mutableListOf<Pair<Int, Int>>()
   var toggleCount = 0
   var previousCount = 0
   var nextCount = 0
@@ -453,6 +649,10 @@ private class RecordingPlaybackController : PlaybackController {
 
   fun emit(value: PlaybackState) {
     mutableState.value = value
+  }
+
+  fun emitNotice(notice: PlaybackNotice) {
+    check(notices.tryEmit(notice))
   }
 
   override suspend fun play(tracks: List<Track>, startIndex: Int, shuffle: Boolean): Boolean {
@@ -488,5 +688,17 @@ private class RecordingPlaybackController : PlaybackController {
     skippedQueueIndices += index
   }
 
-  override fun setShuffleEnabled(enabled: Boolean) = Unit
+  val shuffleUpdates = mutableListOf<Boolean>()
+
+  override fun setShuffleEnabled(enabled: Boolean) {
+    shuffleUpdates += enabled
+  }
+
+  override fun setRepeatMode(mode: PlaybackRepeatMode) {
+    repeatUpdates += mode
+  }
+
+  override fun moveQueueItem(fromIndex: Int, toIndex: Int) {
+    movedQueueItems += fromIndex to toIndex
+  }
 }
